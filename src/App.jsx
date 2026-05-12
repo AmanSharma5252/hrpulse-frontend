@@ -1756,6 +1756,212 @@ function ModalHub({ modal, setModal, emps, ltypes, bals, user, depts, busy, appl
   return null;
 }
 
+
+// ─── SUPER ADMIN PAGE ─────────────────────────────────────────────────────────
+function SuperAdminPage() {
+  const [stats, setStats]       = useState(null);
+  const [companies, setCompanies] = useState([]);
+  const [selCo, setSelCo]       = useState(null);
+  const [detail, setDetail]     = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [tab, setTab]           = useState("companies");
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [s, c] = await Promise.all([
+          api.get("/superadmin/stats"),
+          api.get("/superadmin/companies"),
+        ]);
+        setStats(s.stats);
+        setCompanies(c.companies || []);
+      } catch(e) { toast.error("Failed to load super admin data"); }
+      setLoading(false);
+    })();
+  }, []);
+
+  async function loadDetail(id) {
+    setSelCo(id);
+    try {
+      const d = await api.get(`/superadmin/companies/${id}`);
+      setDetail(d);
+    } catch(e) { toast.error("Failed to load company details"); }
+  }
+
+  async function toggleSuspend(co) {
+    const suspend = !co.is_suspended;
+    await api.patch(`/superadmin/companies/${co.id}/suspend`, { suspend });
+    setCompanies(p => p.map(c => c.id === co.id ? { ...c, is_suspended: suspend } : c));
+    if (detail?.company?.id === co.id) setDetail(p => ({ ...p, company: { ...p.company, is_suspended: suspend } }));
+    toast.success(suspend ? `${co.name} suspended` : `${co.name} activated`);
+  }
+
+  async function updatePlan(id, plan) {
+    await api.patch(`/superadmin/companies/${id}/plan`, { plan });
+    setCompanies(p => p.map(c => c.id === id ? { ...c, plan } : c));
+    toast.success("Plan updated!");
+  }
+
+  const PLAN_COLORS = { free:"#6B7280", starter:"#3B82F6", growth:"#8B5CF6", enterprise:"#F59E0B" };
+  const PLAN_PRICE  = { free:"₹0", starter:"₹999", growth:"₹2,499", enterprise:"₹9,999" };
+
+  if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:400}}><Spin lg/></div>;
+
+  return (
+    <div style={{padding:"24px 28px",maxWidth:1200}}>
+      <div style={{marginBottom:24}}>
+        <div style={{fontSize:22,fontWeight:800,color:"var(--text)"}}>👑 Super Admin</div>
+        <div style={{fontSize:13,color:"var(--text3)"}}>Manage all companies on HRPulse</div>
+      </div>
+
+      {/* Stats */}
+      {stats && (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:14,marginBottom:28}}>
+          {[
+            {label:"Total Companies", val:stats.total_companies, icon:"🏢", color:"#3ECF8E"},
+            {label:"Total Employees", val:stats.total_employees, icon:"👥", color:"#8B5CF6"},
+            {label:"Active Today",    val:stats.today_logins,    icon:"✅", color:"#3B82F6"},
+            {label:"Suspended",       val:stats.suspended,        icon:"🚫", color:"#EF4444"},
+            {label:"MRR",             val:"₹"+stats.mrr.toLocaleString(), icon:"💰", color:"#F59E0B"},
+          ].map(s => (
+            <div key={s.label} style={{background:"var(--bg2)",borderRadius:14,padding:"16px 18px",border:"1px solid var(--border)"}}>
+              <div style={{fontSize:22}}>{s.icon}</div>
+              <div style={{fontSize:22,fontWeight:800,color:s.color,marginTop:4}}>{s.val}</div>
+              <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Plan breakdown */}
+      {stats && (
+        <div style={{display:"flex",gap:10,marginBottom:24,flexWrap:"wrap"}}>
+          {Object.entries(stats.plans).map(([plan,count])=>(
+            <div key={plan} style={{background:"var(--bg2)",borderRadius:10,padding:"8px 16px",border:`1px solid ${PLAN_COLORS[plan]}40`,display:"flex",alignItems:"center",gap:8}}>
+              <div style={{width:8,height:8,borderRadius:"50%",background:PLAN_COLORS[plan]}}/>
+              <span style={{fontSize:13,color:"var(--text)",textTransform:"capitalize",fontWeight:600}}>{plan}</span>
+              <span style={{fontSize:13,color:"var(--text3)"}}>{count} co · {PLAN_PRICE[plan]}/mo</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{display:"grid",gridTemplateColumns:selCo?"1fr 1fr":"1fr",gap:20}}>
+        {/* Companies list */}
+        <div style={{background:"var(--bg2)",borderRadius:16,border:"1px solid var(--border)",overflow:"hidden"}}>
+          <div style={{padding:"16px 20px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{fontSize:15,fontWeight:700,color:"var(--text)"}}>Companies ({companies.length})</div>
+          </div>
+          <div style={{overflow:"auto",maxHeight:520}}>
+            {companies.map(co => (
+              <div key={co.id} onClick={()=>loadDetail(co.id)}
+                style={{padding:"14px 20px",borderBottom:"1px solid var(--border)",cursor:"pointer",background:selCo===co.id?"var(--s2)":"transparent",transition:"background .15s"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{fontSize:14,fontWeight:700,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{co.name}</div>
+                      {co.is_suspended && <span style={{fontSize:10,background:"#EF444420",color:"#EF4444",padding:"2px 7px",borderRadius:6,fontWeight:700}}>SUSPENDED</span>}
+                    </div>
+                    <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{co.industry||"—"} · {co.employee_count} employees · {co.present_today} present today</div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                    <select value={co.plan||"free"} onClick={e=>e.stopPropagation()}
+                      onChange={e=>updatePlan(co.id,e.target.value)}
+                      style={{fontSize:11,padding:"3px 6px",borderRadius:6,background:"var(--s3)",border:`1px solid ${PLAN_COLORS[co.plan||"free"]}`,color:PLAN_COLORS[co.plan||"free"],cursor:"pointer"}}>
+                      {["free","starter","growth","enterprise"].map(p=><option key={p} value={p}>{p}</option>)}
+                    </select>
+                    <button onClick={e=>{e.stopPropagation();toggleSuspend(co);}}
+                      style={{fontSize:11,padding:"4px 10px",borderRadius:7,border:"none",cursor:"pointer",
+                        background:co.is_suspended?"#3ECF8E20":"#EF444420",
+                        color:co.is_suspended?"#3ECF8E":"#EF4444",fontWeight:700}}>
+                      {co.is_suspended?"Activate":"Suspend"}
+                    </button>
+                  </div>
+                </div>
+                <div style={{fontSize:10,color:"var(--text3)",marginTop:4}}>
+                  Joined {new Date(co.created_at).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Company detail panel */}
+        {selCo && detail && (
+          <div style={{background:"var(--bg2)",borderRadius:16,border:"1px solid var(--border)",overflow:"hidden"}}>
+            <div style={{padding:"16px 20px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{fontSize:15,fontWeight:700,color:"var(--text)"}}>{detail.company?.name}</div>
+              <button onClick={()=>{setSelCo(null);setDetail(null);}} style={{background:"none",border:"none",color:"var(--text3)",cursor:"pointer",fontSize:18}}>✕</button>
+            </div>
+            <div style={{display:"flex",gap:0,borderBottom:"1px solid var(--border)"}}>
+              {["Employees","Attendance","Leaves"].map(t=>(
+                <button key={t} onClick={()=>setTab(t)}
+                  style={{flex:1,padding:"10px",fontSize:12,fontWeight:600,border:"none",cursor:"pointer",
+                    background:tab===t?"var(--s2)":"transparent",
+                    color:tab===t?"var(--g)":"var(--text3)",borderBottom:tab===t?"2px solid var(--g)":"2px solid transparent"}}>
+                  {t}
+                </button>
+              ))}
+            </div>
+            <div style={{overflow:"auto",maxHeight:430,padding:16}}>
+              {tab==="Employees" && (
+                <div>
+                  {detail.employees?.length===0 && <div style={{color:"var(--text3)",fontSize:13,textAlign:"center",padding:20}}>No employees yet</div>}
+                  {detail.employees?.map(e=>(
+                    <div key={e.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid var(--border)"}}>
+                      <div style={{width:32,height:32,borderRadius:9,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"var(--g)",flexShrink:0}}>{e.avatar_initials||"?"}</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{e.full_name}</div>
+                        <div style={{fontSize:11,color:"var(--text3)"}}>{e.role} · {e.department||"—"}</div>
+                      </div>
+                      <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:e.is_active?"#3ECF8E20":"#EF444420",color:e.is_active?"#3ECF8E":"#EF4444",fontWeight:700}}>{e.is_active?"Active":"Inactive"}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {tab==="Attendance" && (
+                <div>
+                  <div style={{fontSize:12,color:"var(--text3)",marginBottom:12}}>Today's attendance</div>
+                  {detail.today_attendance?.length===0 && <div style={{color:"var(--text3)",fontSize:13,textAlign:"center",padding:20}}>No check-ins today</div>}
+                  {detail.today_attendance?.map(a=>(
+                    <div key={a.employee_id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
+                      <div style={{fontSize:12,color:"var(--text)"}}>{detail.employees?.find(e=>e.id===a.employee_id)?.full_name||"Unknown"}</div>
+                      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                        <span style={{fontSize:11,color:"var(--text3)"}}>{a.check_in?new Date(a.check_in).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}):"—"}</span>
+                        <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,
+                          background:a.status==="present"?"#3ECF8E20":a.status==="late"?"#F59E0B20":"#EF444420",
+                          color:a.status==="present"?"#3ECF8E":a.status==="late"?"#F59E0B":"#EF4444",fontWeight:700}}>{a.status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {tab==="Leaves" && (
+                <div>
+                  <div style={{fontSize:12,color:"var(--text3)",marginBottom:12}}>Recent leave requests</div>
+                  {detail.recent_leaves?.length===0 && <div style={{color:"var(--text3)",fontSize:13,textAlign:"center",padding:20}}>No leave requests</div>}
+                  {detail.recent_leaves?.map(l=>(
+                    <div key={l.id} style={{padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div style={{fontSize:12,color:"var(--text)"}}>{detail.employees?.find(e=>e.id===l.employee_id)?.full_name||"Unknown"}</div>
+                        <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,
+                          background:l.status==="approved"?"#3ECF8E20":l.status==="pending"?"#F59E0B20":"#EF444420",
+                          color:l.status==="approved"?"#3ECF8E":l.status==="pending"?"#F59E0B":"#EF4444",fontWeight:700}}>{l.status}</span>
+                      </div>
+                      <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{l.start_date} → {l.end_date} · {l.total_days} days</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,setUser]     = useState(null);
@@ -1809,6 +2015,7 @@ export default function App() {
 
   const isAdmin = user?.role==="admin"||user?.role==="hr";
   const isMgr   = isAdmin||user?.role==="manager";
+  const isSuperAdmin = user?.email==="aamansharmaaman@gmail.com";
 
   useEffect(()=>{ if(user) loadAll(); },[user?.id]);
 
@@ -1995,13 +2202,15 @@ export default function App() {
   const pending  = leaves.filter(l=>l.status==="pending");
   const depts    = Object.keys(DEPT_COLORS);
 
-  const NAV_LINKS = isAdmin
+  const NAV_LINKS = isSuperAdmin
+    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","My Profile","Super Admin"]
+    : isAdmin
     ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","My Profile"]
     : isMgr
     ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Performance","Announcements","My Profile"]
     : ["Overview","My Attendance","Apply Leave","Announcements","My Profile"];
 
-  const ICONS = { Overview:"◈",Analytics:"📊","AI Alerts":"🤖","War Room":"🎯",Attendance:"◷","My Attendance":"◷",Employees:"⊛",Leave:"◇","Apply Leave":"◇",Payroll:"💳",Performance:"◉",Announcements:"📢",Reports:"◎",Onboarding:"🚀",Pricing:"💰","My Profile":"◐" };
+  const ICONS = { Overview:"◈",Analytics:"📊","AI Alerts":"🤖","War Room":"🎯",Attendance:"◷","My Attendance":"◷",Employees:"⊛",Leave:"◇","Apply Leave":"◇",Payroll:"💳",Performance:"◉",Announcements:"📢",Reports:"◎",Onboarding:"🚀",Pricing:"💰","My Profile":"◐","Super Admin":"👑" };
 
   if (boot) return (
     <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)" }}>
@@ -2095,7 +2304,10 @@ export default function App() {
         {nav==="Onboarding"   &&<OnboardingPage/>}
         {nav==="Pricing"      &&<PricingPage/>}
         {nav==="My Profile"   &&<ProfilePage   user={user} mySum={mySum} bals={bals} changePw={changePw} busy={busy}/>}
+        {nav==="Super Admin" &&<SuperAdminPage/>}
       </main>
     </div>
   );
 }
+
+// ─── SUPER ADMIN PAGE ─────────────────────────────────────────────────────────
