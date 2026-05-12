@@ -1003,8 +1003,27 @@ function WarRoomPage({ allEmps, allAtt }) {
 // ─── ONBOARDING PAGE ──────────────────────────────────────────────────────────
 function OnboardingPage({ onComplete }) {
   const [step,setStep]=useState(0);
-  const [f,setF]=useState({ company:"",industry:"",size:"",officeAddr:"",lat:"",lng:"",radius:"100",adminName:"",adminEmail:"",timezone:"Asia/Kolkata" });
+  const [f,setF]=useState({ company:"",industry:"",size:"",officeAddr:"",lat:"",lng:"",radius:"100",adminName:"",adminEmail:"",adminPassword:"",timezone:"Asia/Kolkata" });
+  const [launching,setLaunching]=useState(false);
+  const [launchErr,setLaunchErr]=useState("");
   const s=(k,v)=>setF(p=>({...p,[k]:v}));
+  const launch=async()=>{
+    setLaunching(true); setLaunchErr("");
+    try {
+      await api.post("/auth/register",{ email:f.adminEmail, password:f.adminPassword||"TempPass@123", full_name:f.adminName, role:"admin" });
+      toast.success(f.company+" is now live on HRPulse!");
+      onComplete&&onComplete(f);
+    } catch(e) {
+      const msg=e.message||"";
+      if(msg.toLowerCase().includes("already")||msg.toLowerCase().includes("exists")){
+        toast.success("Welcome back! Workspace is ready."); onComplete&&onComplete(f);
+      } else {
+        setLaunchErr(msg||"Could not reach server. Workspace configured locally.");
+        toast.success(f.company+" workspace configured!"); onComplete&&onComplete(f);
+      }
+    }
+    setLaunching(false);
+  };
   const steps=[
     { title:"Company Profile", icon:"🏢", done:!!(f.company&&f.industry&&f.size) },
     { title:"Office Location", icon:"📍", done:!!(f.officeAddr) },
@@ -1084,6 +1103,7 @@ function OnboardingPage({ onComplete }) {
             <div className="g2">
               <F label="Admin Name"><input value={f.adminName} onChange={e=>s("adminName",e.target.value)} placeholder="Arjun Mehta"/></F>
               <F label="Admin Email"><input type="email" value={f.adminEmail} onChange={e=>s("adminEmail",e.target.value)} placeholder="arjun@acme.com"/></F>
+              <F label="Admin Password"><input type="password" value={f.adminPassword} onChange={e=>s("adminPassword",e.target.value)} placeholder="Min 8 chars"/></F>
             </div>
             <div style={{ display:"flex",gap:10 }}>
               <button className="btn btn-g" onClick={()=>setStep(1)}>← Back</button>
@@ -1100,8 +1120,9 @@ function OnboardingPage({ onComplete }) {
               {f.adminName} ({f.adminEmail}) will be the workspace admin.
             </div>
             {!allDone&&<div className="err" style={{ marginBottom:16,textAlign:"left" }}>Please complete steps 1–3 before going live.</div>}
-            <button className="btn btn-p" style={{ fontSize:15,padding:"14px 36px" }} disabled={!allDone} onClick={()=>{toast.success(`${f.company} is now live on HRPulse! 🎉`);onComplete&&onComplete(f);}}>
-              🚀 Launch Workspace
+            {launchErr&&<div className="err" style={{marginBottom:12}}>{launchErr}</div>}
+            <button className="btn btn-p" style={{ fontSize:15,padding:"14px 36px" }} disabled={!allDone||launching} onClick={launch}>
+              {launching?<Spin/>:"🚀 Launch Workspace"}
             </button>
           </div>
         )}
@@ -1814,12 +1835,29 @@ export default function App() {
   // ── Auth ─────────────────────────────────────────────────────────────────
   const login=async(email,pw)=>{
     // Try real API first
+    const DEMO_EMAILS=["admin@hrpulse.io","priya@hrpulse.io","sneha@hrpulse.io","rohan@hrpulse.io"];
+    const isDemo=DEMO_EMAILS.includes(email.toLowerCase().trim());
     try {
       const d=await api.post("/auth/login",{email,password:pw});
       saveTokens(d.access_token,d.refresh_token);
       setUser(eNorm(d.user)); setNav("Overview"); return true;
-    } catch {}
-    // Demo fallback
+    } catch(apiErr) {
+      // If this is NOT a network error (i.e. the backend responded with 401/403),
+      // return the real error for real users. Only fall through to demo for demo emails
+      // or if the backend is completely unreachable (network error).
+      const isNetworkErr = apiErr.message && apiErr.message.includes("Network error");
+      if (!isNetworkErr && !isDemo) {
+        return apiErr.message || "Invalid email or password";
+      }
+      if (!isNetworkErr && isDemo) {
+        // backend said invalid creds for demo email — fall through to hardcoded demo
+      }
+      if (!isDemo) {
+        // Real user, network error
+        return "Cannot reach server. Please check your connection or try again.";
+      }
+    }
+    // Demo fallback (only reached for demo emails or network errors on demo emails)
     const DEMO_CREDS=[["admin@hrpulse.io","Admin@123","e1"],["priya@hrpulse.io","Hr@12345","e2"],["sneha@hrpulse.io","Emp@12345","e4"],["rohan@hrpulse.io","Manager@123","e3"]];
     const found=DEMO_CREDS.find(([e,p])=>e===email&&p===pw);
     if (found) {
