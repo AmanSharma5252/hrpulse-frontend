@@ -1008,18 +1008,25 @@ function OnboardingPage({ onComplete }) {
   const [launchErr,setLaunchErr]=useState("");
   const s=(k,v)=>setF(p=>({...p,[k]:v}));
   const launch=async()=>{
+    if(!f.adminPassword||f.adminPassword.length<8){
+      setLaunchErr("Admin password must be at least 8 characters."); return;
+    }
     setLaunching(true); setLaunchErr("");
     try {
-      await api.post("/auth/register",{ email:f.adminEmail, password:f.adminPassword||"TempPass@123", full_name:f.adminName, role:"admin" });
-      toast.success(f.company+" is now live on HRPulse!");
-      onComplete&&onComplete(f);
+      const d=await api.post("/auth/onboard",{
+        company: f.company, industry: f.industry, size: f.size,
+        timezone: f.timezone, officeAddr: f.officeAddr,
+        lat: f.lat||null, lng: f.lng||null, radius: f.radius||100,
+        adminName: f.adminName, adminEmail: f.adminEmail, adminPassword: f.adminPassword,
+      });
+      toast.success(f.company+" is now live on HRPulse! Ask your admin to log in.");
+      onComplete&&onComplete({...f, company_id: d.company?.id});
     } catch(e) {
       const msg=e.message||"";
       if(msg.toLowerCase().includes("already")||msg.toLowerCase().includes("exists")){
-        toast.success("Welcome back! Workspace is ready."); onComplete&&onComplete(f);
+        setLaunchErr("An account with that email already exists. Please use a different admin email.");
       } else {
-        setLaunchErr(msg||"Could not reach server. Workspace configured locally.");
-        toast.success(f.company+" workspace configured!"); onComplete&&onComplete(f);
+        setLaunchErr(msg||"Could not connect to server. Please try again.");
       }
     }
     setLaunching(false);
