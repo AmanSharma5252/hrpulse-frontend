@@ -61,33 +61,19 @@ const PLAN_FEATURES = {
   growth:     ["GPS Attendance","Selfie Verify","Leave Management","Basic Reports","Email Support","AI Alerts","Payroll","War Room","Analytics","QR Attendance","Priority Support"],
   enterprise: ["GPS Attendance","Selfie Verify","Leave Management","Basic Reports","Email Support","AI Alerts","Payroll","War Room","Analytics","QR Attendance","Priority Support","Custom Integrations","SLA Guarantee","Dedicated Account Manager","HRMS API Access","Biometric Integration"],
 };
-
-// Map nav items to required feature
-const NAV_FEATURE_MAP = {
-  "Analytics":  "Analytics",
-  "AI Alerts":  "AI Alerts",
-  "War Room":   "War Room",
-  "Payroll":    "Payroll",
-};
-
 function hasFeature(plan, feature) {
-  if (!plan) return true; // no plan = demo mode, allow all
+  if (!plan) return true;
   if (plan.status === "suspended" || plan.status === "cancelled") return false;
   const features = plan.features || PLAN_FEATURES[plan.name] || [];
   return features.includes(feature);
 }
-
-function LockedFeature({ name }) {
+function LockedFeature({ name, setNav }) {
   return (
     <div className="fu" style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,opacity:.85 }}>
       <div style={{ fontSize:48 }}>🔒</div>
       <div style={{ fontSize:20,fontWeight:800,color:"var(--text)" }}>{name} is locked</div>
-      <div style={{ fontSize:13,color:"var(--text3)",textAlign:"center",maxWidth:320 }}>
-        This feature is not included in your current plan. Upgrade to unlock it.
-      </div>
-      <button className="btn btn-p" onClick={()=>toast.success("Go to Contact Us in the sidebar to reach us!")}>
-        🚀 Upgrade Plan
-      </button>
+      <div style={{ fontSize:13,color:"var(--text3)",textAlign:"center",maxWidth:320 }}>This feature is not included in your current plan. Upgrade to unlock it.</div>
+      <button className="btn btn-p" onClick={()=>setNav&&setNav("Contact Us")}>🚀 Upgrade Plan</button>
     </div>
   );
 }
@@ -822,130 +808,343 @@ function AIAlertsPage({ allEmps, allAtt, analytics }) {
 }
 
 // ─── PAYROLL PAGE ─────────────────────────────────────────────────────────────
-function PayrollPage({ allEmps, allAtt }) {
+function PayrollPage() {
   const now = new Date();
-  const [month,setMonth] = useState(now.getMonth()+1);
-  const [year,setYear]   = useState(now.getFullYear());
-  const [sel,setSel]     = useState(null);
-  const [search,setSearch]=useState("");
-
-  const emps = allEmps.filter(e=>e.isActive&&(search===""||e.name.toLowerCase().includes(search.toLowerCase())||e.dept.toLowerCase().includes(search.toLowerCase())));
-  const payrolls = emps.map(e=>({ emp:e, ...computePayroll(e,allAtt,month,year) }));
-  const totalNet   = payrolls.reduce((s,p)=>s+p.net,0);
-  const totalGross = payrolls.reduce((s,p)=>s+p.gross,0);
-  const selData    = sel ? payrolls.find(p=>p.emp.id===sel) : null;
+  const [month,setMonth]     = useState(now.getMonth()+1);
+  const [year,setYear]       = useState(now.getFullYear());
+  const [sel,setSel]         = useState(null);
+  const [search,setSearch]   = useState("");
+  const [payroll,setPayroll] = useState([]);
+  const [totals,setTotals]   = useState({});
+  const [config,setConfig]   = useState({ pf_pct:12,tax_pct:10,esic_pct:0 });
+  const [loading,setLoading] = useState(true);
+  const [showSal,setShowSal] = useState(false);
+  const [showCfg,setShowCfg] = useState(false);
+  const [salForm,setSalForm] = useState({});
+  const [cfgForm,setCfgForm] = useState({});
+  const [busy,setBusy]       = useState(false);
 
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
+  async function load() {
+    setLoading(true);
+    try {
+      const d = await api.get(`/payroll/summary?month=${month}&year=${year}`);
+      setPayroll(d.payroll || []);
+      setTotals(d.totals || {});
+      setConfig(d.config || { pf_pct:12,tax_pct:10,esic_pct:0 });
+      setCfgForm(d.config || { pf_pct:12,tax_pct:10,esic_pct:0 });
+    } catch(e) { toast.error("Failed to load payroll"); }
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, [month, year]);
+
+  const filtered = payroll.filter(p =>
+    search === "" ||
+    p.name?.toLowerCase().includes(search.toLowerCase()) ||
+    p.department?.toLowerCase().includes(search.toLowerCase())
+  );
+  const selData = sel ? filtered.find(p => p.employee_id === sel) : null;
+
+  async function markPaid(p) {
+    setBusy(true);
+    try {
+      await api.post("/payroll/mark-paid", {
+        employee_id: p.employee_id, month, year,
+        gross: p.gross, total_deductions: p.total_deductions,
+        net_pay: p.net_pay, days_present: p.days_present,
+        days_absent: p.days_absent, basic_salary: p.basic_salary,
+      });
+      setPayroll(prev => prev.map(x => x.employee_id === p.employee_id ? { ...x, status:"paid" } : x));
+      toast.success(`${p.name} marked as paid!`);
+    } catch(e) { toast.error("Failed to mark paid"); }
+    setBusy(false);
+  }
+
+  async function markAllPaid() {
+    setBusy(true);
+    try {
+      await api.post("/payroll/mark-all-paid", { month, year, employees: filtered });
+      setPayroll(prev => prev.map(x => ({ ...x, status:"paid" })));
+      toast.success(`All ${filtered.length} employees marked as paid!`);
+    } catch(e) { toast.error("Failed"); }
+    setBusy(false);
+  }
+
+  async function sendPayslip(p) {
+    try {
+      const r = await api.post("/payroll/send-payslip", { employee_id: p.employee_id, month, year });
+      toast.success(r.message || "Payslip sent!");
+    } catch(e) { toast.error("Failed to send payslip"); }
+  }
+
+  async function saveSalary() {
+    if (!sel) return;
+    setBusy(true);
+    try {
+      await api.patch(`/payroll/employees/${sel}/salary`, salForm);
+      toast.success("Salary saved!");
+      setShowSal(false);
+      load();
+    } catch(e) { toast.error("Failed to save salary"); }
+    setBusy(false);
+  }
+
+  async function saveConfig() {
+    setBusy(true);
+    try {
+      await api.patch("/payroll/config", cfgForm);
+      toast.success("Payroll config saved!");
+      setShowCfg(false);
+      load();
+    } catch(e) { toast.error("Failed to save config"); }
+    setBusy(false);
+  }
+
+  function openSalary(p) {
+    setSel(p.employee_id);
+    setSalForm({
+      basic_salary:      p.basic_salary || 0,
+      hra_pct:           p.hra_pct || 40,
+      ta_amount:         p.ta || 1600,
+      special_allowance: p.special || 0,
+      bonus:             p.bonus || 0,
+      bank_account:      p.bank_account || "",
+      bank_ifsc:         p.bank_ifsc || "",
+      bank_name:         p.bank_name || "",
+    });
+    setShowSal(true);
+  }
+
+  if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:400}}><Spin lg/></div>;
+
   return (
     <div className="fu">
-      {/* Summary KPIs */}
-      <div className="g4" style={{ marginBottom:20 }}>
-        <KPI label="Total Gross" val={`₹${Math.round(totalGross/100000).toFixed(1)}L`} pct={100} color="var(--g)" icon="💰"/>
-        <KPI label="Net Payable" val={`₹${Math.round(totalNet/100000).toFixed(1)}L`} pct={Math.round(totalNet/totalGross*100)} color="#3B82F6" icon="✓"/>
-        <KPI label="Total Deductions" val={`₹${Math.round((totalGross-totalNet)/1000)}K`} pct={Math.round((totalGross-totalNet)/totalGross*100)} color="#EF4444" icon="↓"/>
-        <KPI label="Employees" val={payrolls.length} pct={100} color="#8B5CF6" icon="👥"/>
+      {/* KPIs */}
+      <div className="g4" style={{marginBottom:20}}>
+        <KPI label="Total Gross"      val={`₹${((totals.gross||0)/100000).toFixed(1)}L`}  pct={100} color="var(--g)"  icon="💰"/>
+        <KPI label="Net Payable"      val={`₹${((totals.net||0)/100000).toFixed(1)}L`}    pct={totals.gross?Math.round((totals.net||0)/(totals.gross||1)*100):0} color="#3B82F6" icon="✓"/>
+        <KPI label="Total Deductions" val={`₹${Math.round((totals.deductions||0)/1000)}K`} pct={totals.gross?Math.round((totals.deductions||0)/(totals.gross||1)*100):0} color="#EF4444" icon="↓"/>
+        <KPI label="Employees"        val={totals.count||0} pct={100} color="#8B5CF6" icon="👥"/>
       </div>
 
       {/* Controls */}
-      <div style={{ display:"flex",gap:10,marginBottom:16,alignItems:"center",flexWrap:"wrap" }}>
-        <input placeholder="Search employee..." value={search} onChange={e=>setSearch(e.target.value)} style={{ width:220 }}/>
-        <select value={month} onChange={e=>setMonth(+e.target.value)} style={{ width:130 }}>
+      <div style={{display:"flex",gap:10,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
+        <input placeholder="Search employee..." value={search} onChange={e=>setSearch(e.target.value)} style={{width:200}}/>
+        <select value={month} onChange={e=>setMonth(+e.target.value)} style={{width:120}}>
           {monthNames.map((m,i)=><option key={i} value={i+1}>{m}</option>)}
         </select>
-        <select value={year} onChange={e=>setYear(+e.target.value)} style={{ width:100 }}>
+        <select value={year} onChange={e=>setYear(+e.target.value)} style={{width:90}}>
           {[2024,2025,2026].map(y=><option key={y}>{y}</option>)}
         </select>
-        <button className="btn btn-p" style={{ marginLeft:"auto" }} onClick={()=>toast.success("Payroll report exported!")}>⬇ Export CSV</button>
-        <button className="btn btn-g" onClick={()=>toast.success("Payslips sent to all employees!")}>📧 Send Payslips</button>
+        <button className="btn" style={{marginLeft:"auto",background:"var(--s2)",color:"var(--text)"}} onClick={()=>setShowCfg(true)}>⚙️ Config</button>
+        <button className="btn btn-p" onClick={()=>toast.success("Exported!")}>⬇ Export CSV</button>
+        <button className="btn btn-g" onClick={markAllPaid} disabled={busy}>✅ Mark All Paid</button>
       </div>
 
       <div className="g2">
-        {/* Table */}
-        <div className="card" style={{ padding:0, overflow:"hidden" }}>
-          <div style={{ padding:"16px 20px", borderBottom:"1px solid var(--border)" }}>
-            <div style={{ fontWeight:700,fontSize:14 }}>Payroll · {monthNames[month-1]} {year}</div>
+        {/* Employee list */}
+        <div className="card" style={{padding:0,overflow:"hidden"}}>
+          <div style={{padding:"16px 20px",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontWeight:700,fontSize:14}}>Payroll · {monthNames[month-1]} {year}</div>
+            <div style={{fontSize:11,color:"var(--text3)"}}>{filtered.length} employees</div>
           </div>
-          <div style={{ maxHeight:520, overflowY:"auto" }}>
-            {payrolls.map(({ emp, net, gross, deductions, present, absent, late })=>(
-              <div key={emp.id} className="row" style={{ padding:"12px 20px", cursor:"pointer", background:sel===emp.id?"var(--gd)":"", borderLeft:sel===emp.id?"3px solid var(--g)":"3px solid transparent" }} onClick={()=>setSel(sel===emp.id?null:emp.id)}>
-                <Av emp={emp} size={36}/>
-                <div style={{ flex:1,minWidth:0 }}>
-                  <div style={{ fontSize:13,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{emp.name}</div>
-                  <div style={{ fontSize:10,color:"var(--text3)" }}>{emp.dept} · P:{present} L:{late} A:{absent}</div>
+          {filtered.length === 0 ? (
+            <div style={{padding:40,textAlign:"center",color:"var(--text3)"}}>
+              <div style={{fontSize:32,marginBottom:8}}>👥</div>
+              <div style={{fontSize:14,fontWeight:600}}>No employees found</div>
+              <div style={{fontSize:12,marginTop:4}}>Add employees first from the Employees section</div>
+            </div>
+          ) : (
+            <div style={{maxHeight:520,overflowY:"auto"}}>
+              {filtered.map(p=>(
+                <div key={p.employee_id} className="row"
+                  style={{padding:"12px 20px",cursor:"pointer",
+                    background:sel===p.employee_id?"var(--gd)":"",
+                    borderLeft:sel===p.employee_id?"3px solid var(--g)":"3px solid transparent"}}
+                  onClick={()=>setSel(sel===p.employee_id?null:p.employee_id)}>
+                  <div style={{width:34,height:34,borderRadius:9,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"var(--g)",flexShrink:0}}>{p.avatar||"?"}</div>
+                  <div style={{flex:1,minWidth:0,marginLeft:10}}>
+                    <div style={{fontSize:13,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
+                    <div style={{fontSize:10,color:"var(--text3)"}}>{p.department||"—"} · P:{p.days_present} A:{p.days_absent}</div>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0,marginRight:8}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"var(--g)"}}>₹{Math.round(p.net_pay).toLocaleString("en-IN")}</div>
+                    <div style={{fontSize:10,color:"#EF4444"}}>-₹{Math.round(p.total_deductions).toLocaleString("en-IN")}</div>
+                  </div>
+                  <span style={{fontSize:10,padding:"3px 8px",borderRadius:6,fontWeight:700,flexShrink:0,
+                    background:p.status==="paid"?"#3ECF8E20":"#F59E0B20",
+                    color:p.status==="paid"?"#3ECF8E":"#F59E0B"}}>
+                    {p.status==="paid"?"PAID":"DRAFT"}
+                  </span>
                 </div>
-                <div style={{ textAlign:"right",flexShrink:0 }}>
-                  <div style={{ fontSize:13,fontWeight:700,color:"var(--g)" }}>{rupee(net)}</div>
-                  <div style={{ fontSize:10,color:"#EF4444" }}>-{rupee(deductions)}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ padding:"12px 20px",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-between",background:"var(--s2)" }}>
-            <span style={{ fontSize:12,color:"var(--text2)",fontWeight:600 }}>Total Net Payroll</span>
-            <span style={{ fontSize:15,fontWeight:900,color:"var(--g)" }}>{rupee(totalNet)}</span>
+              ))}
+            </div>
+          )}
+          <div style={{padding:"12px 20px",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-between",background:"var(--s2)"}}>
+            <span style={{fontSize:12,color:"var(--text2)",fontWeight:600}}>Total Net Payroll</span>
+            <span style={{fontSize:15,fontWeight:900,color:"var(--g)"}}>₹{Math.round(totals.net||0).toLocaleString("en-IN")}</span>
           </div>
         </div>
 
         {/* Payslip detail */}
         {selData ? (
           <div className="payroll-card">
-            <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:20 }}>
-              <Av emp={selData.emp} size={46}/>
-              <div>
-                <div style={{ fontWeight:800,fontSize:16,color:"#fff" }}>{selData.emp.name}</div>
-                <div style={{ fontSize:12,color:"var(--text3)" }}>{selData.emp.title||selData.emp.role} · {selData.emp.dept}</div>
-                <div style={{ fontSize:11,color:"var(--text3)",fontFamily:"var(--mono)" }}>{selData.emp.code}</div>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+              <div style={{width:44,height:44,borderRadius:12,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:"var(--g)"}}>{selData.avatar||"?"}</div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:800,fontSize:16,color:"#fff"}}>{selData.name}</div>
+                <div style={{fontSize:12,color:"var(--text3)"}}>{selData.title||selData.role} · {selData.department}</div>
+                <div style={{fontSize:11,color:"var(--text3)",fontFamily:"var(--mono)"}}>{selData.employee_code}</div>
               </div>
-              <button className="btn btn-g" style={{ marginLeft:"auto",fontSize:11 }} onClick={()=>toast.success(`Payslip sent to ${selData.emp.email}!`)}>📧 Send</button>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <button className="btn btn-g" style={{fontSize:11}} onClick={()=>openSalary(selData)}>✏️ Edit Salary</button>
+                <button className="btn" style={{fontSize:11,background:"var(--s2)",color:"var(--text)"}} onClick={()=>sendPayslip(selData)}>📧 Send</button>
+              </div>
             </div>
 
-            <div style={{ fontSize:10,color:"var(--text3)",letterSpacing:1,marginBottom:10 }}>PAY PERIOD · {monthNames[month-1].toUpperCase()} {year}</div>
-            <div style={{ display:"flex",gap:10,marginBottom:16 }}>
-              {[["Working Days",selData.workingDays],["Present",selData.present],["Late",selData.late],["Absent",selData.absent]].map(([l,v])=>(
-                <div key={l} style={{ flex:1,textAlign:"center",background:"rgba(0,0,0,0.2)",borderRadius:8,padding:"8px 4px" }}>
-                  <div style={{ fontSize:16,fontWeight:800,color:"var(--g)" }}>{v}</div>
-                  <div style={{ fontSize:9,color:"var(--text3)" }}>{l}</div>
+            {selData.bank_account && (
+              <div style={{background:"rgba(62,207,142,0.06)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12}}>
+                <div style={{color:"var(--text3)",fontSize:10,marginBottom:4}}>BANK DETAILS</div>
+                <div style={{color:"var(--text)"}}>{selData.bank_name||"Bank"} · ****{selData.bank_account?.slice(-4)}</div>
+                <div style={{color:"var(--text3)",fontSize:11}}>{selData.bank_ifsc}</div>
+              </div>
+            )}
+
+            <div style={{fontSize:10,color:"var(--text3)",letterSpacing:1,marginBottom:10}}>PAY PERIOD · {monthNames[month-1].toUpperCase()} {year}</div>
+            <div style={{display:"flex",gap:8,marginBottom:16}}>
+              {[["Working",selData.working_days],["Present",selData.days_present],["Absent",selData.days_absent],["Hours",selData.hours_worked+"h"]].map(([l,v])=>(
+                <div key={l} style={{flex:1,textAlign:"center",background:"rgba(0,0,0,0.2)",borderRadius:8,padding:"8px 4px"}}>
+                  <div style={{fontSize:16,fontWeight:800,color:"var(--g)"}}>{v}</div>
+                  <div style={{fontSize:9,color:"var(--text3)"}}>{l}</div>
                 </div>
               ))}
             </div>
 
-            <div style={{ fontSize:11,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>EARNINGS</div>
-            {[["Basic Salary",selData.baseSalary],["HRA (40%)",selData.hra],["Travel Allowance",selData.ta]].map(([l,v])=>(
-              <div key={l} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",fontSize:13 }}>
-                <span style={{ color:"var(--text2)" }}>{l}</span>
-                <span style={{ color:"var(--g)",fontWeight:600,fontFamily:"var(--mono)" }}>{rupee(v)}</span>
+            <div style={{fontSize:11,color:"var(--text3)",marginBottom:8,letterSpacing:.5}}>EARNINGS</div>
+            {[
+              ["Basic Salary", selData.basic_salary],
+              [`HRA (${selData.hra_pct}%)`, selData.hra],
+              ["Travel Allowance", selData.ta],
+              selData.special > 0 && ["Special Allowance", selData.special],
+              selData.bonus > 0   && ["Bonus", selData.bonus],
+            ].filter(Boolean).map(([l,v])=>(
+              <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",fontSize:13}}>
+                <span style={{color:"var(--text2)"}}>{l}</span>
+                <span style={{color:"var(--g)",fontWeight:600,fontFamily:"var(--mono)"}}>₹{Math.round(v).toLocaleString("en-IN")}</span>
               </div>
             ))}
-            <div style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",fontWeight:700 }}>
-              <span style={{ color:"var(--text)" }}>Gross Salary</span>
-              <span style={{ color:"var(--g)",fontFamily:"var(--mono)" }}>{rupee(selData.gross)}</span>
+            <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",fontWeight:700}}>
+              <span style={{color:"var(--text)"}}>Gross Salary</span>
+              <span style={{color:"var(--g)",fontFamily:"var(--mono)"}}>₹{Math.round(selData.gross).toLocaleString("en-IN")}</span>
             </div>
 
-            <Divider/>
-            <div style={{ fontSize:11,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>DEDUCTIONS</div>
-            {[["Provident Fund (12%)",selData.pf],["Income Tax (10%)",selData.tax],["Absent Deduction",selData.absentDeduction],["Late Deduction",selData.lateDeduction]].filter(([,v])=>v>0).map(([l,v])=>(
-              <div key={l} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",fontSize:13 }}>
-                <span style={{ color:"var(--text2)" }}>{l}</span>
-                <span style={{ color:"#EF4444",fontFamily:"var(--mono)" }}>-{rupee(v)}</span>
+            <div style={{height:1,background:"rgba(255,255,255,0.07)",margin:"10px 0"}}/>
+            <div style={{fontSize:11,color:"var(--text3)",marginBottom:8,letterSpacing:.5}}>DEDUCTIONS</div>
+            {[
+              [`PF (${selData.pf_pct}%)`, selData.pf],
+              [`Income Tax (${selData.tax_pct}%)`, selData.tax],
+              selData.esic > 0 && [`ESIC (${selData.esic_pct}%)`, selData.esic],
+              selData.absent_deduction > 0 && ["Absent Deduction", selData.absent_deduction],
+            ].filter(Boolean).map(([l,v])=>(
+              <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",fontSize:13}}>
+                <span style={{color:"var(--text2)"}}>{l}</span>
+                <span style={{color:"#EF4444",fontFamily:"var(--mono)"}}>-₹{Math.round(v).toLocaleString("en-IN")}</span>
               </div>
             ))}
 
-            <Divider/>
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0" }}>
-              <span style={{ fontWeight:800,fontSize:15,color:"var(--text)" }}>NET PAY</span>
-              <span style={{ fontWeight:900,fontSize:22,color:"var(--g)",letterSpacing:-1,fontFamily:"var(--mono)" }}>{rupee(selData.net)}</span>
+            <div style={{height:1,background:"rgba(255,255,255,0.07)",margin:"10px 0"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0"}}>
+              <span style={{fontWeight:800,fontSize:15,color:"var(--text)"}}>NET PAY</span>
+              <span style={{fontWeight:900,fontSize:22,color:"var(--g)",letterSpacing:-1,fontFamily:"var(--mono)"}}>₹{Math.round(selData.net_pay).toLocaleString("en-IN")}</span>
             </div>
-            <div style={{ fontSize:10,color:"var(--text3)",marginTop:4 }}>{selData.totalHours} hours worked this month</div>
+
+            {selData.status !== "paid" ? (
+              <button className="btn btn-g" style={{width:"100%",marginTop:10,padding:"12px"}} onClick={()=>markPaid(selData)} disabled={busy}>
+                ✅ Mark as Paid
+              </button>
+            ) : (
+              <div style={{textAlign:"center",marginTop:10,padding:"12px",background:"#3ECF8E15",borderRadius:10,color:"#3ECF8E",fontWeight:700,fontSize:13}}>
+                ✅ PAID
+              </div>
+            )}
           </div>
         ) : (
-          <div className="card" style={{ display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10,color:"var(--text3)",minHeight:300 }}>
-            <div style={{ fontSize:32 }}>💳</div>
-            <div style={{ fontSize:13,fontWeight:600 }}>Select an employee</div>
-            <div style={{ fontSize:11 }}>to view detailed payslip</div>
+          <div className="card" style={{display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10,color:"var(--text3)",minHeight:300}}>
+            <div style={{fontSize:32}}>💳</div>
+            <div style={{fontSize:13,fontWeight:600}}>Select an employee</div>
+            <div style={{fontSize:11}}>to view detailed payslip</div>
           </div>
         )}
       </div>
+
+      {/* Edit Salary Modal */}
+      {showSal && selData && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"var(--bg2)",borderRadius:20,padding:28,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",border:"1px solid var(--border)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div style={{fontSize:16,fontWeight:800,color:"var(--text)"}}>✏️ Edit Salary — {selData.name}</div>
+              <button onClick={()=>setShowSal(false)} style={{background:"none",border:"none",color:"var(--text3)",cursor:"pointer",fontSize:18}}>✕</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+              {[
+                ["Basic Salary (₹)","basic_salary","number"],
+                ["HRA %","hra_pct","number"],
+                ["Travel Allowance (₹)","ta_amount","number"],
+                ["Special Allowance (₹)","special_allowance","number"],
+                ["Bonus (₹)","bonus","number"],
+              ].map(([label,key,type])=>(
+                <div key={key}>
+                  <div style={{fontSize:11,color:"var(--text3)",marginBottom:5}}>{label}</div>
+                  <input type={type} value={salForm[key]||""} onChange={e=>setSalForm(p=>({...p,[key]:e.target.value}))} style={{width:"100%"}}/>
+                </div>
+              ))}
+            </div>
+            <div style={{marginTop:16,paddingTop:16,borderTop:"1px solid var(--border)"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"var(--text)",marginBottom:12}}>🏦 Bank Details</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                {[
+                  ["Account Number","bank_account"],
+                  ["IFSC Code","bank_ifsc"],
+                  ["Bank Name","bank_name"],
+                ].map(([label,key])=>(
+                  <div key={key}>
+                    <div style={{fontSize:11,color:"var(--text3)",marginBottom:5}}>{label}</div>
+                    <input value={salForm[key]||""} onChange={e=>setSalForm(p=>({...p,[key]:e.target.value}))} style={{width:"100%"}}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:20}}>
+              <button className="btn" style={{flex:1,background:"var(--s2)",color:"var(--text)"}} onClick={()=>setShowSal(false)}>Cancel</button>
+              <button className="btn btn-g" style={{flex:1}} onClick={saveSalary} disabled={busy}>{busy?"Saving...":"Save Salary"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Config Modal */}
+      {showCfg && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"var(--bg2)",borderRadius:20,padding:28,width:"100%",maxWidth:380,border:"1px solid var(--border)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div style={{fontSize:16,fontWeight:800,color:"var(--text)"}}>⚙️ Payroll Config</div>
+              <button onClick={()=>setShowCfg(false)} style={{background:"none",border:"none",color:"var(--text3)",cursor:"pointer",fontSize:18}}>✕</button>
+            </div>
+            {[["PF %","pf_pct"],["Income Tax %","tax_pct"],["ESIC %","esic_pct"]].map(([label,key])=>(
+              <div key={key} style={{marginBottom:14}}>
+                <div style={{fontSize:11,color:"var(--text3)",marginBottom:5}}>{label}</div>
+                <input type="number" value={cfgForm[key]||0} onChange={e=>setCfgForm(p=>({...p,[key]:e.target.value}))} style={{width:"100%"}}/>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:10,marginTop:20}}>
+              <button className="btn" style={{flex:1,background:"var(--s2)",color:"var(--text)"}} onClick={()=>setShowCfg(false)}>Cancel</button>
+              <button className="btn btn-g" style={{flex:1}} onClick={saveConfig} disabled={busy}>{busy?"Saving...":"Save Config"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1384,7 +1583,7 @@ function SuperAdminPage({ currentUser }) {
 function ContactPage({ plan }) {
   const contacts = [
     { icon:"📧", label:"Email Us", value:"aamansharmaaman@gmail.com", sub:"We reply within 24 hours", action:()=>window.open("mailto:aamansharmaaman@gmail.com?subject=HRPulse Upgrade Enquiry"+(plan?` - ${plan} Plan`:"")+"&body=Hi, I'm interested in upgrading my HRPulse plan. Please get in touch.") },
-    { icon:"💬", label:"WhatsApp", value:"+91 7982278517", sub:"Chat with us directly", action:()=>window.open("https://wa.me/917982278517?text=Hi, I'm interested in HRPulse"+(plan?` ${plan} plan`:"")+". Please share more details.") },
+    { icon:"💬", label:"WhatsApp", value:"+91 XXXXX XXXXX", sub:"Chat with us directly", action:()=>window.open("https://wa.me/91XXXXXXXXXX?text=Hi, I'm interested in HRPulse"+(plan?` ${plan} plan`:"")+". Please share more details.") },
     { icon:"📅", label:"Book a Demo", value:"Schedule a call", sub:"30-min product walkthrough", action:()=>window.open("https://calendly.com") },
     { icon:"🐦", label:"Twitter / X", value:"@hrpulse", sub:"DM us anytime", action:()=>window.open("https://twitter.com/hrpulse") },
     { icon:"💼", label:"LinkedIn", value:"HRPulse", sub:"Connect with our team", action:()=>window.open("https://linkedin.com") },
@@ -1458,7 +1657,7 @@ function PricingPage() {
             </div>
             {p.per&&<div style={{ fontSize:11,color:"var(--text3)",marginBottom:20 }}>/{p.per} · billed annually</div>}
             {!p.per&&<div style={{ fontSize:11,color:"var(--text3)",marginBottom:20 }}>contact us for pricing</div>}
-            <button className={`btn ${p.name==="Growth"?"btn-p":"btn-g"}`} style={{ width:"100%",marginBottom:20 }} onClick={()=>{ window.dispatchEvent(new CustomEvent("hrpulse-nav",{detail:{nav:"Contact Us",plan:p.name}})); }}>
+            <button className={`btn ${p.name==="Growth"?"btn-p":"btn-g"}`} style={{ width:"100%",marginBottom:20 }} onClick={()=>toast.success(`${p.name} plan selected! Our team will reach out.`)}>
               {p.price?"Start Free Trial":"Contact Sales"}
             </button>
             <div>
@@ -1927,9 +2126,53 @@ function ReportsPage({ leaves, dash, allEmps, analytics, allAtt }) {
 // ─── PROFILE PAGE ─────────────────────────────────────────────────────────────
 function ProfilePage({ user, mySum, bals, changePw, busy }) {
   const [cur,setCur]=useState(""); const [nxt,setNxt]=useState(""); const [cnf,setCnf]=useState(""); const [msg,setMsg]=useState("");
+  const [tab,setTab]=useState("personal");
+  const [saving,setSaving]=useState(false);
+
+  // Emergency/contact form
+  const [eForm,setEForm]=useState({ phone:user.phone||"", emergency:user.emergency||"" });
+
+  // Bank details form
+  const [bForm,setBForm]=useState({ bank_account:"", bank_ifsc:"", bank_name:"" });
+
+  useEffect(()=>{
+    // Load bank details from /auth/me
+    api.get("/auth/me").then(d=>{
+      setBForm({
+        bank_account: d.user?.bank_account||"",
+        bank_ifsc:    d.user?.bank_ifsc||"",
+        bank_name:    d.user?.bank_name||"",
+      });
+      setEForm({ phone:d.user?.phone||"", emergency:d.user?.emergency_contact||"" });
+    }).catch(()=>{});
+  },[]);
+
   const go=async()=>{ if(!cur||!nxt){setMsg("Fill all fields.");return;} if(nxt!==cnf){setMsg("Passwords don't match.");return;} if(nxt.length<6){setMsg("Min 6 chars.");return;} const ok=await changePw(cur,nxt); if(ok){setMsg("✓ Updated!");setCur("");setNxt("");setCnf("");} };
+
+  async function saveEmergency() {
+    setSaving(true);
+    try {
+      await api.patch("/employees/me/contact", { phone:eForm.phone, emergency_contact:eForm.emergency });
+      toast.success("Contact details saved!");
+    } catch(e) { toast.error("Failed to save"); }
+    setSaving(false);
+  }
+
+  async function saveBank() {
+    setSaving(true);
+    try {
+      await api.patch("/payroll/bank-details", { bank_account:bForm.bank_account, bank_ifsc:bForm.bank_ifsc, bank_name:bForm.bank_name });
+      toast.success("Bank details saved!");
+    } catch(e) { toast.error("Failed to save bank details"); }
+    setSaving(false);
+  }
+
+  const TABS = ["personal","bank","emergency","password"];
+  const TAB_LABELS = { personal:"👤 Personal", bank:"🏦 Bank Details", emergency:"🆘 Emergency", password:"🔑 Password" };
+
   return (
-    <div className="fu" style={{ maxWidth:620 }}>
+    <div className="fu" style={{ maxWidth:650 }}>
+      {/* Header */}
       <div className="card" style={{ marginBottom:14 }}>
         <div style={{ display:"flex",gap:18,alignItems:"center" }}>
           <Av emp={user} size={60}/>
@@ -1940,6 +2183,8 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
           </div>
         </div>
       </div>
+
+      {/* Stats */}
       {mySum&&(
         <div className="g4" style={{ marginBottom:14 }}>
           {[["Present",mySum.present,"var(--g)"],["Late",mySum.late,"#F59E0B"],["On Leave",mySum.on_leave,"#8B5CF6"],["Hours",`${Math.round((mySum.total_minutes||0)/60)}h`,"#3B82F6"]].map(([l,v,c])=>(
@@ -1950,38 +2195,106 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
           ))}
         </div>
       )}
-      <div className="card" style={{ marginBottom:14 }}>
-        <div className="sect">Personal Details</div>
-        {[["Code",user.code],["Email",user.email],["Phone",user.phone||"—"],["Department",user.dept],["Role",user.role],["Hire Date",user.hireDate||"—"],["Emergency",user.emergency||"—"]].map(([k,v])=>(
-          <div key={k} style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border)",fontSize:13 }}>
-            <span style={{ color:"var(--text3)" }}>{k}</span>
-            <span style={{ color:"var(--text)",fontWeight:500,textAlign:"right",maxWidth:260,wordBreak:"break-all" }}>{v}</span>
-          </div>
+
+      {/* Tabs */}
+      <div style={{ display:"flex",gap:6,marginBottom:14,flexWrap:"wrap" }}>
+        {TABS.map(t=>(
+          <button key={t} onClick={()=>setTab(t)}
+            style={{ padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:600,border:"none",cursor:"pointer",
+              background:tab===t?"var(--g)":"var(--s2)",
+              color:tab===t?"#000":"var(--text3)" }}>
+            {TAB_LABELS[t]}
+          </button>
         ))}
       </div>
-      {bals.filter(b=>b.total_days>0).length>0&&(
+
+      {/* Personal Tab */}
+      {tab==="personal"&&(
         <div className="card" style={{ marginBottom:14 }}>
-          <div className="sect">Leave Balances</div>
-          {bals.filter(b=>b.total_days>0).map(b=>{const used=b.used_days||0,left=b.total_days-used-(b.pending_days||0);return(
-            <div key={b.id} style={{ padding:"8px 0",borderBottom:"1px solid var(--border)" }}>
-              <div style={{ display:"flex",justifyContent:"space-between",marginBottom:5 }}>
-                <span style={{ fontSize:12,color:"var(--text2)" }}>{b.leave_type?.name}</span>
-                <span style={{ fontSize:12,fontWeight:700,color:"var(--g)" }}>{left} / {b.total_days}</span>
-              </div>
-              <div className="pb"><div className="pf" style={{ width:`${b.total_days>0?Math.round(used/b.total_days*100):0}%`,background:"linear-gradient(90deg,var(--g)55,var(--g))" }}/></div>
-              {b.pending_days>0&&<div style={{ fontSize:10,color:"#F59E0B",marginTop:3 }}>{b.pending_days} pending</div>}
+          <div className="sect">Personal Details</div>
+          {[["Employee Code",user.code],["Email",user.email],["Phone",user.phone||"—"],["Department",user.dept],["Role",user.role],["Hire Date",user.hireDate||"—"]].map(([k,v])=>(
+            <div key={k} style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border)",fontSize:13 }}>
+              <span style={{ color:"var(--text3)" }}>{k}</span>
+              <span style={{ color:"var(--text)",fontWeight:500,textAlign:"right",maxWidth:260,wordBreak:"break-all" }}>{v}</span>
             </div>
-          );})}
+          ))}
+          {bals.filter(b=>b.total_days>0).length>0&&(
+            <>
+              <div className="sect" style={{ marginTop:16 }}>Leave Balances</div>
+              {bals.filter(b=>b.total_days>0).map(b=>{const used=b.used_days||0,left=b.total_days-used-(b.pending_days||0);return(
+                <div key={b.id} style={{ padding:"8px 0",borderBottom:"1px solid var(--border)" }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",marginBottom:5 }}>
+                    <span style={{ fontSize:12,color:"var(--text2)" }}>{b.leave_type?.name}</span>
+                    <span style={{ fontSize:12,fontWeight:700,color:"var(--g)" }}>{left} / {b.total_days}</span>
+                  </div>
+                  <div className="pb"><div className="pf" style={{ width:`${b.total_days>0?Math.round(used/b.total_days*100):0}%`,background:"linear-gradient(90deg,var(--g)55,var(--g))" }}/></div>
+                  {b.pending_days>0&&<div style={{ fontSize:10,color:"#F59E0B",marginTop:3 }}>{b.pending_days} pending</div>}
+                </div>
+              );})}
+            </>
+          )}
         </div>
       )}
-      <div className="card">
-        <div className="sect">Change Password</div>
-        <F label="Current Password"><input type="password" value={cur} onChange={e=>setCur(e.target.value)} placeholder="Current password"/></F>
-        <F label="New Password"><input type="password" value={nxt} onChange={e=>setNxt(e.target.value)} placeholder="Min 6 characters"/></F>
-        <F label="Confirm New Password"><input type="password" value={cnf} onChange={e=>setCnf(e.target.value)} placeholder="Repeat new password" onKeyDown={e=>e.key==="Enter"&&go()}/></F>
-        {msg&&<div style={{ fontSize:12,color:msg.startsWith("✓")?"var(--g)":"#EF4444",marginBottom:10 }}>{msg}</div>}
-        <button className="btn btn-p" onClick={go} disabled={busy}>{busy?<Spin/>:"Update Password"}</button>
-      </div>
+
+      {/* Bank Details Tab */}
+      {tab==="bank"&&(
+        <div className="card" style={{ marginBottom:14 }}>
+          <div className="sect">🏦 Bank Account Details</div>
+          <div style={{ fontSize:12,color:"var(--text3)",marginBottom:16 }}>Your salary will be credited to this account</div>
+          <F label="Bank Name">
+            <input value={bForm.bank_name} onChange={e=>setBForm(p=>({...p,bank_name:e.target.value}))} placeholder="e.g. HDFC Bank"/>
+          </F>
+          <F label="Account Number">
+            <input value={bForm.bank_account} onChange={e=>setBForm(p=>({...p,bank_account:e.target.value}))} placeholder="e.g. 1234567890"/>
+          </F>
+          <F label="IFSC Code">
+            <input value={bForm.bank_ifsc} onChange={e=>setBForm(p=>({...p,bank_ifsc:e.target.value.toUpperCase()}))} placeholder="e.g. HDFC0001234"/>
+          </F>
+          {bForm.bank_account&&(
+            <div style={{ background:"rgba(62,207,142,0.06)",borderRadius:10,padding:"12px 14px",marginBottom:14,fontSize:12 }}>
+              <div style={{ color:"var(--text3)",fontSize:10,marginBottom:4 }}>SAVED ACCOUNT</div>
+              <div style={{ color:"var(--text)",fontWeight:600 }}>{bForm.bank_name||"Bank"}</div>
+              <div style={{ color:"var(--text3)" }}>****{bForm.bank_account.slice(-4)} · {bForm.bank_ifsc}</div>
+            </div>
+          )}
+          <button className="btn btn-g" onClick={saveBank} disabled={saving} style={{ width:"100%" }}>
+            {saving?"Saving...":"💾 Save Bank Details"}
+          </button>
+        </div>
+      )}
+
+      {/* Emergency Contact Tab */}
+      {tab==="emergency"&&(
+        <div className="card" style={{ marginBottom:14 }}>
+          <div className="sect">🆘 Emergency & Contact Details</div>
+          <div style={{ fontSize:12,color:"var(--text3)",marginBottom:16 }}>Update your phone number and emergency contact information</div>
+          <F label="Your Phone Number">
+            <input value={eForm.phone} onChange={e=>setEForm(p=>({...p,phone:e.target.value}))} placeholder="+91 98100 00000"/>
+          </F>
+          <F label="Emergency Contact Name & Phone">
+            <input value={eForm.emergency} onChange={e=>setEForm(p=>({...p,emergency:e.target.value}))} placeholder="e.g. Rahul Sharma — +91 98200 00000"/>
+          </F>
+          <div style={{ background:"rgba(239,68,68,0.06)",borderRadius:10,padding:"12px 14px",marginBottom:14,fontSize:12,border:"1px solid rgba(239,68,68,0.15)" }}>
+            <div style={{ color:"#EF4444",fontWeight:700,marginBottom:4 }}>⚠️ Important</div>
+            <div style={{ color:"var(--text3)" }}>This contact will be reached in case of emergency. Please keep it updated.</div>
+          </div>
+          <button className="btn btn-g" onClick={saveEmergency} disabled={saving} style={{ width:"100%" }}>
+            {saving?"Saving...":"💾 Save Contact Details"}
+          </button>
+        </div>
+      )}
+
+      {/* Password Tab */}
+      {tab==="password"&&(
+        <div className="card">
+          <div className="sect">🔑 Change Password</div>
+          <F label="Current Password"><input type="password" value={cur} onChange={e=>setCur(e.target.value)} placeholder="Current password"/></F>
+          <F label="New Password"><input type="password" value={nxt} onChange={e=>setNxt(e.target.value)} placeholder="Min 6 characters"/></F>
+          <F label="Confirm New Password"><input type="password" value={cnf} onChange={e=>setCnf(e.target.value)} placeholder="Repeat new password" onKeyDown={e=>e.key==="Enter"&&go()}/></F>
+          {msg&&<div style={{ fontSize:12,color:msg.startsWith("✓")?"var(--g)":"#EF4444",marginBottom:10 }}>{msg}</div>}
+          <button className="btn btn-p" onClick={go} disabled={busy} style={{ width:"100%" }}>{busy?<Spin/>:"Update Password"}</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -2052,6 +2365,212 @@ function ModalHub({ modal, setModal, emps, ltypes, bals, user, depts, busy, appl
   return null;
 }
 
+
+// ─── SUPER ADMIN PAGE ─────────────────────────────────────────────────────────
+function SuperAdminPage() {
+  const [stats, setStats]       = useState(null);
+  const [companies, setCompanies] = useState([]);
+  const [selCo, setSelCo]       = useState(null);
+  const [detail, setDetail]     = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [tab, setTab]           = useState("companies");
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [s, c] = await Promise.all([
+          api.get("/superadmin/stats"),
+          api.get("/superadmin/companies"),
+        ]);
+        setStats(s.stats);
+        setCompanies(c.companies || []);
+      } catch(e) { toast.error("Failed to load super admin data"); }
+      setLoading(false);
+    })();
+  }, []);
+
+  async function loadDetail(id) {
+    setSelCo(id);
+    try {
+      const d = await api.get(`/superadmin/companies/${id}`);
+      setDetail(d);
+    } catch(e) { toast.error("Failed to load company details"); }
+  }
+
+  async function toggleSuspend(co) {
+    const suspend = !co.is_suspended;
+    await api.patch(`/superadmin/companies/${co.id}/suspend`, { suspend });
+    setCompanies(p => p.map(c => c.id === co.id ? { ...c, is_suspended: suspend } : c));
+    if (detail?.company?.id === co.id) setDetail(p => ({ ...p, company: { ...p.company, is_suspended: suspend } }));
+    toast.success(suspend ? `${co.name} suspended` : `${co.name} activated`);
+  }
+
+  async function updatePlan(id, plan) {
+    await api.patch(`/superadmin/companies/${id}/plan`, { plan });
+    setCompanies(p => p.map(c => c.id === id ? { ...c, plan } : c));
+    toast.success("Plan updated!");
+  }
+
+  const PLAN_COLORS = { free:"#6B7280", starter:"#3B82F6", growth:"#8B5CF6", enterprise:"#F59E0B" };
+  const PLAN_PRICE  = { free:"₹0", starter:"₹999", growth:"₹2,499", enterprise:"₹9,999" };
+
+  if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:400}}><Spin lg/></div>;
+
+  return (
+    <div style={{padding:"24px 28px",maxWidth:1200}}>
+      <div style={{marginBottom:24}}>
+        <div style={{fontSize:22,fontWeight:800,color:"var(--text)"}}>👑 Super Admin</div>
+        <div style={{fontSize:13,color:"var(--text3)"}}>Manage all companies on HRPulse</div>
+      </div>
+
+      {/* Stats */}
+      {stats && (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:14,marginBottom:28}}>
+          {[
+            {label:"Total Companies", val:stats.total_companies, icon:"🏢", color:"#3ECF8E"},
+            {label:"Total Employees", val:stats.total_employees, icon:"👥", color:"#8B5CF6"},
+            {label:"Active Today",    val:stats.today_logins,    icon:"✅", color:"#3B82F6"},
+            {label:"Suspended",       val:stats.suspended,        icon:"🚫", color:"#EF4444"},
+            {label:"MRR",             val:"₹"+stats.mrr.toLocaleString(), icon:"💰", color:"#F59E0B"},
+          ].map(s => (
+            <div key={s.label} style={{background:"var(--bg2)",borderRadius:14,padding:"16px 18px",border:"1px solid var(--border)"}}>
+              <div style={{fontSize:22}}>{s.icon}</div>
+              <div style={{fontSize:22,fontWeight:800,color:s.color,marginTop:4}}>{s.val}</div>
+              <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Plan breakdown */}
+      {stats && (
+        <div style={{display:"flex",gap:10,marginBottom:24,flexWrap:"wrap"}}>
+          {Object.entries(stats.plans).map(([plan,count])=>(
+            <div key={plan} style={{background:"var(--bg2)",borderRadius:10,padding:"8px 16px",border:`1px solid ${PLAN_COLORS[plan]}40`,display:"flex",alignItems:"center",gap:8}}>
+              <div style={{width:8,height:8,borderRadius:"50%",background:PLAN_COLORS[plan]}}/>
+              <span style={{fontSize:13,color:"var(--text)",textTransform:"capitalize",fontWeight:600}}>{plan}</span>
+              <span style={{fontSize:13,color:"var(--text3)"}}>{count} co · {PLAN_PRICE[plan]}/mo</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{display:"grid",gridTemplateColumns:selCo?"1fr 1fr":"1fr",gap:20}}>
+        {/* Companies list */}
+        <div style={{background:"var(--bg2)",borderRadius:16,border:"1px solid var(--border)",overflow:"hidden"}}>
+          <div style={{padding:"16px 20px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{fontSize:15,fontWeight:700,color:"var(--text)"}}>Companies ({companies.length})</div>
+          </div>
+          <div style={{overflow:"auto",maxHeight:520}}>
+            {companies.map(co => (
+              <div key={co.id} onClick={()=>loadDetail(co.id)}
+                style={{padding:"14px 20px",borderBottom:"1px solid var(--border)",cursor:"pointer",background:selCo===co.id?"var(--s2)":"transparent",transition:"background .15s"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{fontSize:14,fontWeight:700,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{co.name}</div>
+                      {co.is_suspended && <span style={{fontSize:10,background:"#EF444420",color:"#EF4444",padding:"2px 7px",borderRadius:6,fontWeight:700}}>SUSPENDED</span>}
+                    </div>
+                    <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{co.industry||"—"} · {co.employee_count} employees · {co.present_today} present today</div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                    <select value={co.plan||"free"} onClick={e=>e.stopPropagation()}
+                      onChange={e=>updatePlan(co.id,e.target.value)}
+                      style={{fontSize:11,padding:"3px 6px",borderRadius:6,background:"var(--s3)",border:`1px solid ${PLAN_COLORS[co.plan||"free"]}`,color:PLAN_COLORS[co.plan||"free"],cursor:"pointer"}}>
+                      {["free","starter","growth","enterprise"].map(p=><option key={p} value={p}>{p}</option>)}
+                    </select>
+                    <button onClick={e=>{e.stopPropagation();toggleSuspend(co);}}
+                      style={{fontSize:11,padding:"4px 10px",borderRadius:7,border:"none",cursor:"pointer",
+                        background:co.is_suspended?"#3ECF8E20":"#EF444420",
+                        color:co.is_suspended?"#3ECF8E":"#EF4444",fontWeight:700}}>
+                      {co.is_suspended?"Activate":"Suspend"}
+                    </button>
+                  </div>
+                </div>
+                <div style={{fontSize:10,color:"var(--text3)",marginTop:4}}>
+                  Joined {new Date(co.created_at).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Company detail panel */}
+        {selCo && detail && (
+          <div style={{background:"var(--bg2)",borderRadius:16,border:"1px solid var(--border)",overflow:"hidden"}}>
+            <div style={{padding:"16px 20px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{fontSize:15,fontWeight:700,color:"var(--text)"}}>{detail.company?.name}</div>
+              <button onClick={()=>{setSelCo(null);setDetail(null);}} style={{background:"none",border:"none",color:"var(--text3)",cursor:"pointer",fontSize:18}}>✕</button>
+            </div>
+            <div style={{display:"flex",gap:0,borderBottom:"1px solid var(--border)"}}>
+              {["Employees","Attendance","Leaves"].map(t=>(
+                <button key={t} onClick={()=>setTab(t)}
+                  style={{flex:1,padding:"10px",fontSize:12,fontWeight:600,border:"none",cursor:"pointer",
+                    background:tab===t?"var(--s2)":"transparent",
+                    color:tab===t?"var(--g)":"var(--text3)",borderBottom:tab===t?"2px solid var(--g)":"2px solid transparent"}}>
+                  {t}
+                </button>
+              ))}
+            </div>
+            <div style={{overflow:"auto",maxHeight:430,padding:16}}>
+              {tab==="Employees" && (
+                <div>
+                  {detail.employees?.length===0 && <div style={{color:"var(--text3)",fontSize:13,textAlign:"center",padding:20}}>No employees yet</div>}
+                  {detail.employees?.map(e=>(
+                    <div key={e.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid var(--border)"}}>
+                      <div style={{width:32,height:32,borderRadius:9,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"var(--g)",flexShrink:0}}>{e.avatar_initials||"?"}</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{e.full_name}</div>
+                        <div style={{fontSize:11,color:"var(--text3)"}}>{e.role} · {e.department||"—"}</div>
+                      </div>
+                      <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:e.is_active?"#3ECF8E20":"#EF444420",color:e.is_active?"#3ECF8E":"#EF4444",fontWeight:700}}>{e.is_active?"Active":"Inactive"}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {tab==="Attendance" && (
+                <div>
+                  <div style={{fontSize:12,color:"var(--text3)",marginBottom:12}}>Today's attendance</div>
+                  {detail.today_attendance?.length===0 && <div style={{color:"var(--text3)",fontSize:13,textAlign:"center",padding:20}}>No check-ins today</div>}
+                  {detail.today_attendance?.map(a=>(
+                    <div key={a.employee_id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
+                      <div style={{fontSize:12,color:"var(--text)"}}>{detail.employees?.find(e=>e.id===a.employee_id)?.full_name||"Unknown"}</div>
+                      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                        <span style={{fontSize:11,color:"var(--text3)"}}>{a.check_in?new Date(a.check_in).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}):"—"}</span>
+                        <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,
+                          background:a.status==="present"?"#3ECF8E20":a.status==="late"?"#F59E0B20":"#EF444420",
+                          color:a.status==="present"?"#3ECF8E":a.status==="late"?"#F59E0B":"#EF4444",fontWeight:700}}>{a.status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {tab==="Leaves" && (
+                <div>
+                  <div style={{fontSize:12,color:"var(--text3)",marginBottom:12}}>Recent leave requests</div>
+                  {detail.recent_leaves?.length===0 && <div style={{color:"var(--text3)",fontSize:13,textAlign:"center",padding:20}}>No leave requests</div>}
+                  {detail.recent_leaves?.map(l=>(
+                    <div key={l.id} style={{padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div style={{fontSize:12,color:"var(--text)"}}>{detail.employees?.find(e=>e.id===l.employee_id)?.full_name||"Unknown"}</div>
+                        <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,
+                          background:l.status==="approved"?"#3ECF8E20":l.status==="pending"?"#F59E0B20":"#EF444420",
+                          color:l.status==="approved"?"#3ECF8E":l.status==="pending"?"#F59E0B":"#EF4444",fontWeight:700}}>{l.status}</span>
+                      </div>
+                      <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{l.start_date} → {l.end_date} · {l.total_days} days</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,setUser]     = useState(null);
@@ -2065,15 +2584,6 @@ export default function App() {
   const [mySum,setMySum]   = useState(null);
   const [analytics,setAn]  = useState(null);
   const [nav,setNav]       = useState("Overview");
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-  const [userPlan, setUserPlan] = useState(null);
-  const [contactPlan, setContactPlan] = useState(null);
-
-  useEffect(() => {
-    const handler = (e) => { setContactPlan(e.detail?.plan||null); setNav("Contact Us"); };
-    window.addEventListener("hrpulse-nav", handler);
-    return () => window.removeEventListener("hrpulse-nav", handler);
-  }, []);
   const [modal,setModal]   = useState(null);
   const [busy,setBusy]     = useState(false);
   const [clock,setClock]   = useState(new Date());
@@ -2114,6 +2624,15 @@ export default function App() {
 
   const isAdmin = user?.role==="admin"||user?.role==="hr";
   const isMgr   = isAdmin||user?.role==="manager";
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [userPlan, setUserPlan]         = useState(null);
+  const [contactPlan, setContactPlan]   = useState(null);
+
+  useEffect(() => {
+    const handler = (e) => { setContactPlan(e.detail?.plan||null); setNav("Contact Us"); };
+    window.addEventListener("hrpulse-nav", handler);
+    return () => window.removeEventListener("hrpulse-nav", handler);
+  }, []);
 
   useEffect(()=>{ if(user) loadAll(); },[user?.id]);
 
@@ -2154,7 +2673,6 @@ export default function App() {
       saveTokens(d.access_token,d.refresh_token);
       setUser(eNorm(d.user)); setNav("Overview");
       if (d.user.plan) setUserPlan(d.user.plan);
-      // Check if super admin
       api.get("/super/companies").then(()=>setIsSuperAdmin(true)).catch(()=>setIsSuperAdmin(false));
       return true;
     } catch(apiErr) {
@@ -2304,8 +2822,10 @@ export default function App() {
   const pending  = leaves.filter(l=>l.status==="pending");
   const depts    = Object.keys(DEPT_COLORS);
 
-  const NAV_LINKS = isAdmin
-    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Contact Us",...(isSuperAdmin===true?["Super Admin"]:[]),"My Profile"]
+  const NAV_LINKS = isSuperAdmin===true
+    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Contact Us","Super Admin","My Profile"]
+    : isAdmin
+    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Contact Us","My Profile"]
     : isMgr
     ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Performance","Announcements","Contact Us","My Profile"]
     : ["Overview","My Attendance","Apply Leave","Announcements","Contact Us","My Profile"];
@@ -2391,22 +2911,25 @@ export default function App() {
 
         {/* Pages */}
         {nav==="Overview"     &&<OverviewPage  user={user} isMgr={isMgr} isAdmin={isAdmin} dash={dash} todayRec={todayRec} myLeaves={myLeaves} pending={pending} reviewLeave={reviewLeave} setModal={setModal} mySum={mySum} anns={anns} busy={busy} onCheckIn={handleCheckIn} onCheckOut={handleCheckOut} bals={bals} allAtt={allAtt} allEmps={allEmps}/>}
-        {nav==="Analytics"    &&(hasFeature(userPlan,"Analytics")?<AnalyticsPage analytics={analytics} allAtt={allAtt} allEmps={allEmps}/>:<LockedFeature name="Analytics"/>)}
-        {nav==="AI Alerts"    &&(hasFeature(userPlan,"AI Alerts")?<AIAlertsPage  allEmps={allEmps} allAtt={allAtt} analytics={analytics}/>:<LockedFeature name="AI Alerts"/>)}
-        {nav==="War Room"     &&(hasFeature(userPlan,"War Room")?<WarRoomPage   allEmps={allEmps} allAtt={allAtt}/>:<LockedFeature name="War Room"/>)}
+        {nav==="Analytics"    &&(hasFeature(userPlan,"Analytics")?<AnalyticsPage analytics={analytics} allAtt={allAtt} allEmps={allEmps}/>:<LockedFeature name="Analytics" setNav={setNav}/>)}
+        {nav==="AI Alerts"    &&(hasFeature(userPlan,"AI Alerts")?<AIAlertsPage  allEmps={allEmps} allAtt={allAtt} analytics={analytics}/>:<LockedFeature name="AI Alerts" setNav={setNav}/>)}
+        {nav==="War Room"     &&(hasFeature(userPlan,"War Room")?<WarRoomPage   allEmps={allEmps} allAtt={allAtt}/>:<LockedFeature name="War Room" setNav={setNav}/>)}
         {(nav==="Attendance"||nav==="My Attendance")&&<AttPage isMgr={isMgr} todayRec={todayRec} att={att} mySum={mySum} onCheckIn={handleCheckIn} onCheckOut={handleCheckOut} busy={busy} allAtt={allAtt} allEmps={allEmps}/>}
         {nav==="Employees"    &&<EmpsPage      emps={emps.length?emps:allEmps} setModal={setModal} isAdmin={isAdmin} deactivateEmp={deactivateEmp} busy={busy} user={user}/>}
         {(nav==="Leave"||nav==="Apply Leave")&&<LeavePage isMgr={isMgr} leaves={leaves} myLeaves={myLeaves} pending={pending} bals={bals} reviewLeave={reviewLeave} cancelLeave={cancelLeave} setModal={setModal} busy={busy}/>}
-        {nav==="Payroll"      &&(hasFeature(userPlan,"Payroll")?<PayrollPage   allEmps={allEmps} allAtt={allAtt}/>:<LockedFeature name="Payroll"/>)}
+        {nav==="Payroll" &&(hasFeature(userPlan,"Payroll")?<PayrollPage/>:<LockedFeature name="Payroll" setNav={setNav}/>)}
         {nav==="Performance"  &&<PerfPage      user={user} isMgr={isMgr} emps={emps.length?emps:allEmps} tasks={tasks} updProg={updProg} setModal={setModal}/>}
         {nav==="Announcements"&&<AnnsPage      anns={anns} delAnn={delAnn} isAdmin={isAdmin}/>}
         {nav==="Reports"      &&<ReportsPage   leaves={leaves} dash={dash} allEmps={allEmps} analytics={analytics} allAtt={allAtt}/>}
         {nav==="Onboarding"   &&<OnboardingPage/>}
         {nav==="Pricing"      &&<PricingPage/>}
-        {nav==="Super Admin"  &&<SuperAdminPage currentUser={user}/>}
         {nav==="Contact Us"   &&<ContactPage plan={contactPlan}/>}
+        {nav==="Super Admin"  &&<SuperAdminPage currentUser={user}/>}
         {nav==="My Profile"   &&<ProfilePage   user={user} mySum={mySum} bals={bals} changePw={changePw} busy={busy}/>}
+        {nav==="Super Admin" &&<SuperAdminPage/>}
       </main>
     </div>
   );
 }
+
+// ─── SUPER ADMIN PAGE ─────────────────────────────────────────────────────────
