@@ -1870,7 +1870,7 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
   async function saveEmergency() {
     setSaving(true);
     try {
-      await api.patch(`/employees/${user.id}`, { phone:eForm.phone, emergency_contact:eForm.emergency });
+      await api.patch("/employees/me/contact", { phone:eForm.phone, emergency_contact:eForm.emergency });
       toast.success("Contact details saved!");
     } catch(e) { toast.error("Failed to save"); }
     setSaving(false);
