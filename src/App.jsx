@@ -176,7 +176,7 @@ const fmtD  = iso => iso ? new Date(iso).toLocaleDateString("en-IN",{day:"numeri
 const fmtH  = m   => m ? `${Math.floor(m/60)}h ${m%60}m` : "—";
 const fmtAgo= ms  => { const s=Math.floor((Date.now()-ms)/1000); if(s<60)return"just now"; if(s<3600)return`${Math.floor(s/60)}m ago`; if(s<86400)return`${Math.floor(s/3600)}h ago`; return`${Math.floor(s/86400)}d ago`; };
 const rupee = n => `₹${Number(n).toLocaleString("en-IN")}`;
-const eNorm = e=>({ id:e.id, code:e.employee_code, name:e.name, email:e.email, role:e.role, dept:e.department, title:e.title||"", phone:e.phone||"", emergency:e.emergency_contact||"", avatar:e.avatar_initials||e.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase(), hireDate:e.hire_date||"", isActive:e.is_active });
+const eNorm = e=>{ const nm=e.name||e.full_name||e.email||"?"; return { id:e.id, code:e.employee_code, name:nm, email:e.email, role:e.role, dept:e.department, title:e.title||"", phone:e.phone||"", emergency:e.emergency_contact||"", avatar:e.avatar_initials||(nm.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()||"?"), hireDate:e.hire_date||"", isActive:e.is_active }; };
 const lNorm = l=>({ id:l.id, empId:l.employee_id, empName:l.employee?.name||"", deptName:l.employee?.department||"", avatar:l.employee?.avatar_initials||"?", type:l.leave_type?.name||"Leave", from:l.start_date, to:l.end_date, days:l.total_days, reason:l.reason||"", status:l.status, reviewer:l.reviewer?.name||"", reviewNote:l.review_note||"", at:new Date(l.created_at).getTime() });
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
@@ -1200,7 +1200,7 @@ function SuperAdminPage({ currentUser }) {
       plan_id: sub?.plans?.id || plans[0]?.id || "",
       status: sub?.status || "trial",
       notes: sub?.notes || "",
-      billing_end: sub?.billing_end ? sub.billing_end.split("T")[0] : "",
+      billing_end: sub?.billing_end ? (sub.billing_end||"").split("T")[0] : "",
     });
     setSelected(co);
   };
@@ -1290,7 +1290,7 @@ function SuperAdminPage({ currentUser }) {
                       </span>
                     </td>
                     <td style={{ padding:"12px 16px",color:"var(--text3)",fontSize:12 }}>
-                      {sub?.trial_ends ? new Date(sub.trial_ends).toLocaleDateString("en-IN") : "—"}
+                      {sub?.trial_ends ? (() => { try { return new Date(sub.trial_ends).toLocaleDateString("en-IN"); } catch(e) { return "—"; } })() : "—"}
                     </td>
                     <td style={{ padding:"12px 16px" }}>
                       <div style={{ display:"flex",gap:8 }}>
@@ -2243,7 +2243,7 @@ export default function App() {
   const depts    = Object.keys(DEPT_COLORS);
 
   const NAV_LINKS = isAdmin
-    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing",...(isSuperAdmin?["Super Admin"]:[]),"My Profile"]
+    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing",...(isSuperAdmin===true?["Super Admin"]:[]),"My Profile"]
     : isMgr
     ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Performance","Announcements","My Profile"]
     : ["Overview","My Attendance","Apply Leave","Announcements","My Profile"];
