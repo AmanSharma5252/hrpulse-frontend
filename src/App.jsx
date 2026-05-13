@@ -1384,7 +1384,7 @@ function SuperAdminPage({ currentUser }) {
 function ContactPage({ plan }) {
   const contacts = [
     { icon:"📧", label:"Email Us", value:"aamansharmaaman@gmail.com", sub:"We reply within 24 hours", action:()=>window.open("mailto:aamansharmaaman@gmail.com?subject=HRPulse Upgrade Enquiry"+(plan?` - ${plan} Plan`:"")+"&body=Hi, I'm interested in upgrading my HRPulse plan. Please get in touch.") },
-    { icon:"💬", label:"WhatsApp", value:"+91 XXXXX XXXXX", sub:"Chat with us directly", action:()=>window.open("https://wa.me/91XXXXXXXXXX?text=Hi, I'm interested in HRPulse"+(plan?` ${plan} plan`:"")+". Please share more details.") },
+    { icon:"💬", label:"WhatsApp", value:"+91 7982278517", sub:"Chat with us directly", action:()=>window.open("https://wa.me/917982278517?text=Hi, I'm interested in HRPulse"+(plan?` ${plan} plan`:"")+". Please share more details.") },
     { icon:"📅", label:"Book a Demo", value:"Schedule a call", sub:"30-min product walkthrough", action:()=>window.open("https://calendly.com") },
     { icon:"🐦", label:"Twitter / X", value:"@hrpulse", sub:"DM us anytime", action:()=>window.open("https://twitter.com/hrpulse") },
     { icon:"💼", label:"LinkedIn", value:"HRPulse", sub:"Connect with our team", action:()=>window.open("https://linkedin.com") },
