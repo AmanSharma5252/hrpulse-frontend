@@ -785,130 +785,343 @@ function AIAlertsPage({ allEmps, allAtt, analytics }) {
 }
 
 // ─── PAYROLL PAGE ─────────────────────────────────────────────────────────────
-function PayrollPage({ allEmps, allAtt }) {
+function PayrollPage() {
   const now = new Date();
-  const [month,setMonth] = useState(now.getMonth()+1);
-  const [year,setYear]   = useState(now.getFullYear());
-  const [sel,setSel]     = useState(null);
-  const [search,setSearch]=useState("");
-
-  const emps = allEmps.filter(e=>e.isActive&&(search===""||e.name.toLowerCase().includes(search.toLowerCase())||e.dept.toLowerCase().includes(search.toLowerCase())));
-  const payrolls = emps.map(e=>({ emp:e, ...computePayroll(e,allAtt,month,year) }));
-  const totalNet   = payrolls.reduce((s,p)=>s+p.net,0);
-  const totalGross = payrolls.reduce((s,p)=>s+p.gross,0);
-  const selData    = sel ? payrolls.find(p=>p.emp.id===sel) : null;
+  const [month,setMonth]     = useState(now.getMonth()+1);
+  const [year,setYear]       = useState(now.getFullYear());
+  const [sel,setSel]         = useState(null);
+  const [search,setSearch]   = useState("");
+  const [payroll,setPayroll] = useState([]);
+  const [totals,setTotals]   = useState({});
+  const [config,setConfig]   = useState({ pf_pct:12,tax_pct:10,esic_pct:0 });
+  const [loading,setLoading] = useState(true);
+  const [showSal,setShowSal] = useState(false);
+  const [showCfg,setShowCfg] = useState(false);
+  const [salForm,setSalForm] = useState({});
+  const [cfgForm,setCfgForm] = useState({});
+  const [busy,setBusy]       = useState(false);
 
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
+  async function load() {
+    setLoading(true);
+    try {
+      const d = await api.get(`/payroll/summary?month=${month}&year=${year}`);
+      setPayroll(d.payroll || []);
+      setTotals(d.totals || {});
+      setConfig(d.config || { pf_pct:12,tax_pct:10,esic_pct:0 });
+      setCfgForm(d.config || { pf_pct:12,tax_pct:10,esic_pct:0 });
+    } catch(e) { toast.error("Failed to load payroll"); }
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, [month, year]);
+
+  const filtered = payroll.filter(p =>
+    search === "" ||
+    p.name?.toLowerCase().includes(search.toLowerCase()) ||
+    p.department?.toLowerCase().includes(search.toLowerCase())
+  );
+  const selData = sel ? filtered.find(p => p.employee_id === sel) : null;
+
+  async function markPaid(p) {
+    setBusy(true);
+    try {
+      await api.post("/payroll/mark-paid", {
+        employee_id: p.employee_id, month, year,
+        gross: p.gross, total_deductions: p.total_deductions,
+        net_pay: p.net_pay, days_present: p.days_present,
+        days_absent: p.days_absent, basic_salary: p.basic_salary,
+      });
+      setPayroll(prev => prev.map(x => x.employee_id === p.employee_id ? { ...x, status:"paid" } : x));
+      toast.success(`${p.name} marked as paid!`);
+    } catch(e) { toast.error("Failed to mark paid"); }
+    setBusy(false);
+  }
+
+  async function markAllPaid() {
+    setBusy(true);
+    try {
+      await api.post("/payroll/mark-all-paid", { month, year, employees: filtered });
+      setPayroll(prev => prev.map(x => ({ ...x, status:"paid" })));
+      toast.success(`All ${filtered.length} employees marked as paid!`);
+    } catch(e) { toast.error("Failed"); }
+    setBusy(false);
+  }
+
+  async function sendPayslip(p) {
+    try {
+      const r = await api.post("/payroll/send-payslip", { employee_id: p.employee_id, month, year });
+      toast.success(r.message || "Payslip sent!");
+    } catch(e) { toast.error("Failed to send payslip"); }
+  }
+
+  async function saveSalary() {
+    if (!sel) return;
+    setBusy(true);
+    try {
+      await api.patch(`/payroll/employees/${sel}/salary`, salForm);
+      toast.success("Salary saved!");
+      setShowSal(false);
+      load();
+    } catch(e) { toast.error("Failed to save salary"); }
+    setBusy(false);
+  }
+
+  async function saveConfig() {
+    setBusy(true);
+    try {
+      await api.patch("/payroll/config", cfgForm);
+      toast.success("Payroll config saved!");
+      setShowCfg(false);
+      load();
+    } catch(e) { toast.error("Failed to save config"); }
+    setBusy(false);
+  }
+
+  function openSalary(p) {
+    setSel(p.employee_id);
+    setSalForm({
+      basic_salary:      p.basic_salary || 0,
+      hra_pct:           p.hra_pct || 40,
+      ta_amount:         p.ta || 1600,
+      special_allowance: p.special || 0,
+      bonus:             p.bonus || 0,
+      bank_account:      p.bank_account || "",
+      bank_ifsc:         p.bank_ifsc || "",
+      bank_name:         p.bank_name || "",
+    });
+    setShowSal(true);
+  }
+
+  if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:400}}><Spin lg/></div>;
+
   return (
     <div className="fu">
-      {/* Summary KPIs */}
-      <div className="g4" style={{ marginBottom:20 }}>
-        <KPI label="Total Gross" val={`₹${Math.round(totalGross/100000).toFixed(1)}L`} pct={100} color="var(--g)" icon="💰"/>
-        <KPI label="Net Payable" val={`₹${Math.round(totalNet/100000).toFixed(1)}L`} pct={Math.round(totalNet/totalGross*100)} color="#3B82F6" icon="✓"/>
-        <KPI label="Total Deductions" val={`₹${Math.round((totalGross-totalNet)/1000)}K`} pct={Math.round((totalGross-totalNet)/totalGross*100)} color="#EF4444" icon="↓"/>
-        <KPI label="Employees" val={payrolls.length} pct={100} color="#8B5CF6" icon="👥"/>
+      {/* KPIs */}
+      <div className="g4" style={{marginBottom:20}}>
+        <KPI label="Total Gross"      val={`₹${((totals.gross||0)/100000).toFixed(1)}L`}  pct={100} color="var(--g)"  icon="💰"/>
+        <KPI label="Net Payable"      val={`₹${((totals.net||0)/100000).toFixed(1)}L`}    pct={totals.gross?Math.round((totals.net||0)/(totals.gross||1)*100):0} color="#3B82F6" icon="✓"/>
+        <KPI label="Total Deductions" val={`₹${Math.round((totals.deductions||0)/1000)}K`} pct={totals.gross?Math.round((totals.deductions||0)/(totals.gross||1)*100):0} color="#EF4444" icon="↓"/>
+        <KPI label="Employees"        val={totals.count||0} pct={100} color="#8B5CF6" icon="👥"/>
       </div>
 
       {/* Controls */}
-      <div style={{ display:"flex",gap:10,marginBottom:16,alignItems:"center",flexWrap:"wrap" }}>
-        <input placeholder="Search employee..." value={search} onChange={e=>setSearch(e.target.value)} style={{ width:220 }}/>
-        <select value={month} onChange={e=>setMonth(+e.target.value)} style={{ width:130 }}>
+      <div style={{display:"flex",gap:10,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
+        <input placeholder="Search employee..." value={search} onChange={e=>setSearch(e.target.value)} style={{width:200}}/>
+        <select value={month} onChange={e=>setMonth(+e.target.value)} style={{width:120}}>
           {monthNames.map((m,i)=><option key={i} value={i+1}>{m}</option>)}
         </select>
-        <select value={year} onChange={e=>setYear(+e.target.value)} style={{ width:100 }}>
+        <select value={year} onChange={e=>setYear(+e.target.value)} style={{width:90}}>
           {[2024,2025,2026].map(y=><option key={y}>{y}</option>)}
         </select>
-        <button className="btn btn-p" style={{ marginLeft:"auto" }} onClick={()=>toast.success("Payroll report exported!")}>⬇ Export CSV</button>
-        <button className="btn btn-g" onClick={()=>toast.success("Payslips sent to all employees!")}>📧 Send Payslips</button>
+        <button className="btn" style={{marginLeft:"auto",background:"var(--s2)",color:"var(--text)"}} onClick={()=>setShowCfg(true)}>⚙️ Config</button>
+        <button className="btn btn-p" onClick={()=>toast.success("Exported!")}>⬇ Export CSV</button>
+        <button className="btn btn-g" onClick={markAllPaid} disabled={busy}>✅ Mark All Paid</button>
       </div>
 
       <div className="g2">
-        {/* Table */}
-        <div className="card" style={{ padding:0, overflow:"hidden" }}>
-          <div style={{ padding:"16px 20px", borderBottom:"1px solid var(--border)" }}>
-            <div style={{ fontWeight:700,fontSize:14 }}>Payroll · {monthNames[month-1]} {year}</div>
+        {/* Employee list */}
+        <div className="card" style={{padding:0,overflow:"hidden"}}>
+          <div style={{padding:"16px 20px",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontWeight:700,fontSize:14}}>Payroll · {monthNames[month-1]} {year}</div>
+            <div style={{fontSize:11,color:"var(--text3)"}}>{filtered.length} employees</div>
           </div>
-          <div style={{ maxHeight:520, overflowY:"auto" }}>
-            {payrolls.map(({ emp, net, gross, deductions, present, absent, late })=>(
-              <div key={emp.id} className="row" style={{ padding:"12px 20px", cursor:"pointer", background:sel===emp.id?"var(--gd)":"", borderLeft:sel===emp.id?"3px solid var(--g)":"3px solid transparent" }} onClick={()=>setSel(sel===emp.id?null:emp.id)}>
-                <Av emp={emp} size={36}/>
-                <div style={{ flex:1,minWidth:0 }}>
-                  <div style={{ fontSize:13,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{emp.name}</div>
-                  <div style={{ fontSize:10,color:"var(--text3)" }}>{emp.dept} · P:{present} L:{late} A:{absent}</div>
+          {filtered.length === 0 ? (
+            <div style={{padding:40,textAlign:"center",color:"var(--text3)"}}>
+              <div style={{fontSize:32,marginBottom:8}}>👥</div>
+              <div style={{fontSize:14,fontWeight:600}}>No employees found</div>
+              <div style={{fontSize:12,marginTop:4}}>Add employees first from the Employees section</div>
+            </div>
+          ) : (
+            <div style={{maxHeight:520,overflowY:"auto"}}>
+              {filtered.map(p=>(
+                <div key={p.employee_id} className="row"
+                  style={{padding:"12px 20px",cursor:"pointer",
+                    background:sel===p.employee_id?"var(--gd)":"",
+                    borderLeft:sel===p.employee_id?"3px solid var(--g)":"3px solid transparent"}}
+                  onClick={()=>setSel(sel===p.employee_id?null:p.employee_id)}>
+                  <div style={{width:34,height:34,borderRadius:9,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"var(--g)",flexShrink:0}}>{p.avatar||"?"}</div>
+                  <div style={{flex:1,minWidth:0,marginLeft:10}}>
+                    <div style={{fontSize:13,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
+                    <div style={{fontSize:10,color:"var(--text3)"}}>{p.department||"—"} · P:{p.days_present} A:{p.days_absent}</div>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0,marginRight:8}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"var(--g)"}}>₹{Math.round(p.net_pay).toLocaleString("en-IN")}</div>
+                    <div style={{fontSize:10,color:"#EF4444"}}>-₹{Math.round(p.total_deductions).toLocaleString("en-IN")}</div>
+                  </div>
+                  <span style={{fontSize:10,padding:"3px 8px",borderRadius:6,fontWeight:700,flexShrink:0,
+                    background:p.status==="paid"?"#3ECF8E20":"#F59E0B20",
+                    color:p.status==="paid"?"#3ECF8E":"#F59E0B"}}>
+                    {p.status==="paid"?"PAID":"DRAFT"}
+                  </span>
                 </div>
-                <div style={{ textAlign:"right",flexShrink:0 }}>
-                  <div style={{ fontSize:13,fontWeight:700,color:"var(--g)" }}>{rupee(net)}</div>
-                  <div style={{ fontSize:10,color:"#EF4444" }}>-{rupee(deductions)}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ padding:"12px 20px",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-between",background:"var(--s2)" }}>
-            <span style={{ fontSize:12,color:"var(--text2)",fontWeight:600 }}>Total Net Payroll</span>
-            <span style={{ fontSize:15,fontWeight:900,color:"var(--g)" }}>{rupee(totalNet)}</span>
+              ))}
+            </div>
+          )}
+          <div style={{padding:"12px 20px",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-between",background:"var(--s2)"}}>
+            <span style={{fontSize:12,color:"var(--text2)",fontWeight:600}}>Total Net Payroll</span>
+            <span style={{fontSize:15,fontWeight:900,color:"var(--g)"}}>₹{Math.round(totals.net||0).toLocaleString("en-IN")}</span>
           </div>
         </div>
 
         {/* Payslip detail */}
         {selData ? (
           <div className="payroll-card">
-            <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:20 }}>
-              <Av emp={selData.emp} size={46}/>
-              <div>
-                <div style={{ fontWeight:800,fontSize:16,color:"#fff" }}>{selData.emp.name}</div>
-                <div style={{ fontSize:12,color:"var(--text3)" }}>{selData.emp.title||selData.emp.role} · {selData.emp.dept}</div>
-                <div style={{ fontSize:11,color:"var(--text3)",fontFamily:"var(--mono)" }}>{selData.emp.code}</div>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+              <div style={{width:44,height:44,borderRadius:12,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:"var(--g)"}}>{selData.avatar||"?"}</div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:800,fontSize:16,color:"#fff"}}>{selData.name}</div>
+                <div style={{fontSize:12,color:"var(--text3)"}}>{selData.title||selData.role} · {selData.department}</div>
+                <div style={{fontSize:11,color:"var(--text3)",fontFamily:"var(--mono)"}}>{selData.employee_code}</div>
               </div>
-              <button className="btn btn-g" style={{ marginLeft:"auto",fontSize:11 }} onClick={()=>toast.success(`Payslip sent to ${selData.emp.email}!`)}>📧 Send</button>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <button className="btn btn-g" style={{fontSize:11}} onClick={()=>openSalary(selData)}>✏️ Edit Salary</button>
+                <button className="btn" style={{fontSize:11,background:"var(--s2)",color:"var(--text)"}} onClick={()=>sendPayslip(selData)}>📧 Send</button>
+              </div>
             </div>
 
-            <div style={{ fontSize:10,color:"var(--text3)",letterSpacing:1,marginBottom:10 }}>PAY PERIOD · {monthNames[month-1].toUpperCase()} {year}</div>
-            <div style={{ display:"flex",gap:10,marginBottom:16 }}>
-              {[["Working Days",selData.workingDays],["Present",selData.present],["Late",selData.late],["Absent",selData.absent]].map(([l,v])=>(
-                <div key={l} style={{ flex:1,textAlign:"center",background:"rgba(0,0,0,0.2)",borderRadius:8,padding:"8px 4px" }}>
-                  <div style={{ fontSize:16,fontWeight:800,color:"var(--g)" }}>{v}</div>
-                  <div style={{ fontSize:9,color:"var(--text3)" }}>{l}</div>
+            {selData.bank_account && (
+              <div style={{background:"rgba(62,207,142,0.06)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12}}>
+                <div style={{color:"var(--text3)",fontSize:10,marginBottom:4}}>BANK DETAILS</div>
+                <div style={{color:"var(--text)"}}>{selData.bank_name||"Bank"} · ****{selData.bank_account?.slice(-4)}</div>
+                <div style={{color:"var(--text3)",fontSize:11}}>{selData.bank_ifsc}</div>
+              </div>
+            )}
+
+            <div style={{fontSize:10,color:"var(--text3)",letterSpacing:1,marginBottom:10}}>PAY PERIOD · {monthNames[month-1].toUpperCase()} {year}</div>
+            <div style={{display:"flex",gap:8,marginBottom:16}}>
+              {[["Working",selData.working_days],["Present",selData.days_present],["Absent",selData.days_absent],["Hours",selData.hours_worked+"h"]].map(([l,v])=>(
+                <div key={l} style={{flex:1,textAlign:"center",background:"rgba(0,0,0,0.2)",borderRadius:8,padding:"8px 4px"}}>
+                  <div style={{fontSize:16,fontWeight:800,color:"var(--g)"}}>{v}</div>
+                  <div style={{fontSize:9,color:"var(--text3)"}}>{l}</div>
                 </div>
               ))}
             </div>
 
-            <div style={{ fontSize:11,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>EARNINGS</div>
-            {[["Basic Salary",selData.baseSalary],["HRA (40%)",selData.hra],["Travel Allowance",selData.ta]].map(([l,v])=>(
-              <div key={l} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",fontSize:13 }}>
-                <span style={{ color:"var(--text2)" }}>{l}</span>
-                <span style={{ color:"var(--g)",fontWeight:600,fontFamily:"var(--mono)" }}>{rupee(v)}</span>
+            <div style={{fontSize:11,color:"var(--text3)",marginBottom:8,letterSpacing:.5}}>EARNINGS</div>
+            {[
+              ["Basic Salary", selData.basic_salary],
+              [`HRA (${selData.hra_pct}%)`, selData.hra],
+              ["Travel Allowance", selData.ta],
+              selData.special > 0 && ["Special Allowance", selData.special],
+              selData.bonus > 0   && ["Bonus", selData.bonus],
+            ].filter(Boolean).map(([l,v])=>(
+              <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",fontSize:13}}>
+                <span style={{color:"var(--text2)"}}>{l}</span>
+                <span style={{color:"var(--g)",fontWeight:600,fontFamily:"var(--mono)"}}>₹{Math.round(v).toLocaleString("en-IN")}</span>
               </div>
             ))}
-            <div style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",fontWeight:700 }}>
-              <span style={{ color:"var(--text)" }}>Gross Salary</span>
-              <span style={{ color:"var(--g)",fontFamily:"var(--mono)" }}>{rupee(selData.gross)}</span>
+            <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",fontWeight:700}}>
+              <span style={{color:"var(--text)"}}>Gross Salary</span>
+              <span style={{color:"var(--g)",fontFamily:"var(--mono)"}}>₹{Math.round(selData.gross).toLocaleString("en-IN")}</span>
             </div>
 
-            <Divider/>
-            <div style={{ fontSize:11,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>DEDUCTIONS</div>
-            {[["Provident Fund (12%)",selData.pf],["Income Tax (10%)",selData.tax],["Absent Deduction",selData.absentDeduction],["Late Deduction",selData.lateDeduction]].filter(([,v])=>v>0).map(([l,v])=>(
-              <div key={l} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",fontSize:13 }}>
-                <span style={{ color:"var(--text2)" }}>{l}</span>
-                <span style={{ color:"#EF4444",fontFamily:"var(--mono)" }}>-{rupee(v)}</span>
+            <div style={{height:1,background:"rgba(255,255,255,0.07)",margin:"10px 0"}}/>
+            <div style={{fontSize:11,color:"var(--text3)",marginBottom:8,letterSpacing:.5}}>DEDUCTIONS</div>
+            {[
+              [`PF (${selData.pf_pct}%)`, selData.pf],
+              [`Income Tax (${selData.tax_pct}%)`, selData.tax],
+              selData.esic > 0 && [`ESIC (${selData.esic_pct}%)`, selData.esic],
+              selData.absent_deduction > 0 && ["Absent Deduction", selData.absent_deduction],
+            ].filter(Boolean).map(([l,v])=>(
+              <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",fontSize:13}}>
+                <span style={{color:"var(--text2)"}}>{l}</span>
+                <span style={{color:"#EF4444",fontFamily:"var(--mono)"}}>-₹{Math.round(v).toLocaleString("en-IN")}</span>
               </div>
             ))}
 
-            <Divider/>
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0" }}>
-              <span style={{ fontWeight:800,fontSize:15,color:"var(--text)" }}>NET PAY</span>
-              <span style={{ fontWeight:900,fontSize:22,color:"var(--g)",letterSpacing:-1,fontFamily:"var(--mono)" }}>{rupee(selData.net)}</span>
+            <div style={{height:1,background:"rgba(255,255,255,0.07)",margin:"10px 0"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0"}}>
+              <span style={{fontWeight:800,fontSize:15,color:"var(--text)"}}>NET PAY</span>
+              <span style={{fontWeight:900,fontSize:22,color:"var(--g)",letterSpacing:-1,fontFamily:"var(--mono)"}}>₹{Math.round(selData.net_pay).toLocaleString("en-IN")}</span>
             </div>
-            <div style={{ fontSize:10,color:"var(--text3)",marginTop:4 }}>{selData.totalHours} hours worked this month</div>
+
+            {selData.status !== "paid" ? (
+              <button className="btn btn-g" style={{width:"100%",marginTop:10,padding:"12px"}} onClick={()=>markPaid(selData)} disabled={busy}>
+                ✅ Mark as Paid
+              </button>
+            ) : (
+              <div style={{textAlign:"center",marginTop:10,padding:"12px",background:"#3ECF8E15",borderRadius:10,color:"#3ECF8E",fontWeight:700,fontSize:13}}>
+                ✅ PAID
+              </div>
+            )}
           </div>
         ) : (
-          <div className="card" style={{ display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10,color:"var(--text3)",minHeight:300 }}>
-            <div style={{ fontSize:32 }}>💳</div>
-            <div style={{ fontSize:13,fontWeight:600 }}>Select an employee</div>
-            <div style={{ fontSize:11 }}>to view detailed payslip</div>
+          <div className="card" style={{display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10,color:"var(--text3)",minHeight:300}}>
+            <div style={{fontSize:32}}>💳</div>
+            <div style={{fontSize:13,fontWeight:600}}>Select an employee</div>
+            <div style={{fontSize:11}}>to view detailed payslip</div>
           </div>
         )}
       </div>
+
+      {/* Edit Salary Modal */}
+      {showSal && selData && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"var(--bg2)",borderRadius:20,padding:28,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",border:"1px solid var(--border)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div style={{fontSize:16,fontWeight:800,color:"var(--text)"}}>✏️ Edit Salary — {selData.name}</div>
+              <button onClick={()=>setShowSal(false)} style={{background:"none",border:"none",color:"var(--text3)",cursor:"pointer",fontSize:18}}>✕</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+              {[
+                ["Basic Salary (₹)","basic_salary","number"],
+                ["HRA %","hra_pct","number"],
+                ["Travel Allowance (₹)","ta_amount","number"],
+                ["Special Allowance (₹)","special_allowance","number"],
+                ["Bonus (₹)","bonus","number"],
+              ].map(([label,key,type])=>(
+                <div key={key}>
+                  <div style={{fontSize:11,color:"var(--text3)",marginBottom:5}}>{label}</div>
+                  <input type={type} value={salForm[key]||""} onChange={e=>setSalForm(p=>({...p,[key]:e.target.value}))} style={{width:"100%"}}/>
+                </div>
+              ))}
+            </div>
+            <div style={{marginTop:16,paddingTop:16,borderTop:"1px solid var(--border)"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"var(--text)",marginBottom:12}}>🏦 Bank Details</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                {[
+                  ["Account Number","bank_account"],
+                  ["IFSC Code","bank_ifsc"],
+                  ["Bank Name","bank_name"],
+                ].map(([label,key])=>(
+                  <div key={key}>
+                    <div style={{fontSize:11,color:"var(--text3)",marginBottom:5}}>{label}</div>
+                    <input value={salForm[key]||""} onChange={e=>setSalForm(p=>({...p,[key]:e.target.value}))} style={{width:"100%"}}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:20}}>
+              <button className="btn" style={{flex:1,background:"var(--s2)",color:"var(--text)"}} onClick={()=>setShowSal(false)}>Cancel</button>
+              <button className="btn btn-g" style={{flex:1}} onClick={saveSalary} disabled={busy}>{busy?"Saving...":"Save Salary"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Config Modal */}
+      {showCfg && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"var(--bg2)",borderRadius:20,padding:28,width:"100%",maxWidth:380,border:"1px solid var(--border)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div style={{fontSize:16,fontWeight:800,color:"var(--text)"}}>⚙️ Payroll Config</div>
+              <button onClick={()=>setShowCfg(false)} style={{background:"none",border:"none",color:"var(--text3)",cursor:"pointer",fontSize:18}}>✕</button>
+            </div>
+            {[["PF %","pf_pct"],["Income Tax %","tax_pct"],["ESIC %","esic_pct"]].map(([label,key])=>(
+              <div key={key} style={{marginBottom:14}}>
+                <div style={{fontSize:11,color:"var(--text3)",marginBottom:5}}>{label}</div>
+                <input type="number" value={cfgForm[key]||0} onChange={e=>setCfgForm(p=>({...p,[key]:e.target.value}))} style={{width:"100%"}}/>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:10,marginTop:20}}>
+              <button className="btn" style={{flex:1,background:"var(--s2)",color:"var(--text)"}} onClick={()=>setShowCfg(false)}>Cancel</button>
+              <button className="btn btn-g" style={{flex:1}} onClick={saveConfig} disabled={busy}>{busy?"Saving...":"Save Config"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2297,7 +2510,7 @@ export default function App() {
         {(nav==="Attendance"||nav==="My Attendance")&&<AttPage isMgr={isMgr} todayRec={todayRec} att={att} mySum={mySum} onCheckIn={handleCheckIn} onCheckOut={handleCheckOut} busy={busy} allAtt={allAtt} allEmps={allEmps}/>}
         {nav==="Employees"    &&<EmpsPage      emps={emps.length?emps:allEmps} setModal={setModal} isAdmin={isAdmin} deactivateEmp={deactivateEmp} busy={busy} user={user}/>}
         {(nav==="Leave"||nav==="Apply Leave")&&<LeavePage isMgr={isMgr} leaves={leaves} myLeaves={myLeaves} pending={pending} bals={bals} reviewLeave={reviewLeave} cancelLeave={cancelLeave} setModal={setModal} busy={busy}/>}
-        {nav==="Payroll"      &&<PayrollPage   allEmps={allEmps} allAtt={allAtt}/>}
+        {nav==="Payroll" &&<PayrollPage/>}
         {nav==="Performance"  &&<PerfPage      user={user} isMgr={isMgr} emps={emps.length?emps:allEmps} tasks={tasks} updProg={updProg} setModal={setModal}/>}
         {nav==="Announcements"&&<AnnsPage      anns={anns} delAnn={delAnn} isAdmin={isAdmin}/>}
         {nav==="Reports"      &&<ReportsPage   leaves={leaves} dash={dash} allEmps={allEmps} analytics={analytics} allAtt={allAtt}/>}
