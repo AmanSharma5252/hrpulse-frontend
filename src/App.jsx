@@ -808,7 +808,7 @@ function AIAlertsPage({ allEmps, allAtt, analytics }) {
 }
 
 // ─── PAYROLL PAGE ─────────────────────────────────────────────────────────────
-function PayrollPage() {
+function PayrollPage({ useDemo, allEmps }) {
   const now = new Date();
   const [month,setMonth]     = useState(now.getMonth()+1);
   const [year,setYear]       = useState(now.getFullYear());
@@ -823,11 +823,61 @@ function PayrollPage() {
   const [salForm,setSalForm] = useState({});
   const [cfgForm,setCfgForm] = useState({});
   const [busy,setBusy]       = useState(false);
+  // local salary overrides for demo mode
+  const [demoSalaries,setDemoSalaries] = useState({});
+  const [demoCfg,setDemoCfg]           = useState({ pf_pct:12, tax_pct:10, esic_pct:0 });
 
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
+  // Build demo payroll from seed employees
+  function buildDemoPayroll(emps, cfg, salOverrides) {
+    const workingDays = 22;
+    const rows = emps.filter(e=>e.isActive).map(e => {
+      const sal = salOverrides[e.id] || {};
+      const basic      = sal.basic_salary      || (e.id==="e1"?200000:e.id==="e3"?120000:e.id==="e2"?90000:70000);
+      const hra_pct    = sal.hra_pct           || 40;
+      const ta         = sal.ta_amount         || 1600;
+      const special    = sal.special_allowance || 0;
+      const bonus      = sal.bonus             || 0;
+      const hra        = Math.round(basic * hra_pct / 100);
+      const gross      = basic + hra + ta + special + bonus;
+      // fake attendance from seed: random present 14-21
+      const present    = sal.days_present ?? (14 + Math.abs(e.id.charCodeAt(1) % 8));
+      const absent     = workingDays - present;
+      const pf         = Math.round(basic * (cfg.pf_pct||12) / 100);
+      const tax        = Math.round(gross  * (cfg.tax_pct||10) / 100);
+      const esic       = Math.round(gross  * (cfg.esic_pct||0) / 100);
+      const absentDed  = absent > 0 ? Math.round((basic / workingDays) * absent) : 0;
+      const totalDed   = pf + tax + esic + absentDed;
+      const net        = gross - totalDed;
+      return {
+        employee_id: e.id, employee_code: e.code, name: e.name,
+        department: e.dept, title: e.title, avatar: e.avatar,
+        basic_salary: basic, hra_pct, hra, ta, special, bonus, gross,
+        pf_pct: cfg.pf_pct||12, tax_pct: cfg.tax_pct||10, esic_pct: cfg.esic_pct||0,
+        pf, tax, esic, absent_deduction: absentDed,
+        total_deductions: totalDed, net_pay: net,
+        days_present: present, days_absent: absent, working_days: workingDays, hours_worked: present * 8,
+        status: "draft", bank_account: sal.bank_account||"", bank_ifsc: sal.bank_ifsc||"", bank_name: sal.bank_name||"",
+      };
+    });
+    const gross_t = rows.reduce((s,r)=>s+r.gross,0);
+    const net_t   = rows.reduce((s,r)=>s+r.net_pay,0);
+    const ded_t   = rows.reduce((s,r)=>s+r.total_deductions,0);
+    return { rows, totals:{ gross:gross_t, net:net_t, deductions:ded_t, count:rows.length } };
+  }
+
   async function load() {
     setLoading(true);
+    if (useDemo) {
+      const { rows, totals:t } = buildDemoPayroll(allEmps||[], demoCfg, demoSalaries);
+      setPayroll(rows);
+      setTotals(t);
+      setConfig(demoCfg);
+      setCfgForm(demoCfg);
+      setLoading(false);
+      return;
+    }
     try {
       const d = await api.get(`/payroll/summary?month=${month}&year=${year}`);
       setPayroll(d.payroll || []);
@@ -838,7 +888,16 @@ function PayrollPage() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, [month, year]);
+  useEffect(() => { load(); }, [month, year, useDemo]);
+
+  // Rebuild demo payroll whenever salary overrides or config change
+  useEffect(() => {
+    if (!useDemo) return;
+    const { rows, totals:t } = buildDemoPayroll(allEmps||[], demoCfg, demoSalaries);
+    setPayroll(rows);
+    setTotals(t);
+    setConfig(demoCfg);
+  }, [demoSalaries, demoCfg]);
 
   const filtered = payroll.filter(p =>
     search === "" ||
@@ -850,12 +909,14 @@ function PayrollPage() {
   async function markPaid(p) {
     setBusy(true);
     try {
-      await api.post("/payroll/mark-paid", {
-        employee_id: p.employee_id, month, year,
-        gross: p.gross, total_deductions: p.total_deductions,
-        net_pay: p.net_pay, days_present: p.days_present,
-        days_absent: p.days_absent, basic_salary: p.basic_salary,
-      });
+      if (!useDemo) {
+        await api.post("/payroll/mark-paid", {
+          employee_id: p.employee_id, month, year,
+          gross: p.gross, total_deductions: p.total_deductions,
+          net_pay: p.net_pay, days_present: p.days_present,
+          days_absent: p.days_absent, basic_salary: p.basic_salary,
+        });
+      }
       setPayroll(prev => prev.map(x => x.employee_id === p.employee_id ? { ...x, status:"paid" } : x));
       toast.success(`${p.name} marked as paid!`);
     } catch(e) { toast.error("Failed to mark paid"); }
@@ -865,7 +926,7 @@ function PayrollPage() {
   async function markAllPaid() {
     setBusy(true);
     try {
-      await api.post("/payroll/mark-all-paid", { month, year, employees: filtered });
+      if (!useDemo) await api.post("/payroll/mark-all-paid", { month, year, employees: filtered });
       setPayroll(prev => prev.map(x => ({ ...x, status:"paid" })));
       toast.success(`All ${filtered.length} employees marked as paid!`);
     } catch(e) { toast.error("Failed"); }
@@ -874,6 +935,7 @@ function PayrollPage() {
 
   async function sendPayslip(p) {
     try {
+      if (useDemo) { toast.success("Payslip sent! (demo)"); return; }
       const r = await api.post("/payroll/send-payslip", { employee_id: p.employee_id, month, year });
       toast.success(r.message || "Payslip sent!");
     } catch(e) { toast.error("Failed to send payslip"); }
@@ -883,6 +945,14 @@ function PayrollPage() {
     if (!sel) return;
     setBusy(true);
     try {
+      if (useDemo) {
+        // persist salary override locally so demo payroll recalculates
+        setDemoSalaries(prev => ({ ...prev, [sel]: { ...prev[sel], ...salForm } }));
+        toast.success("Salary saved! (demo)");
+        setShowSal(false);
+        setBusy(false);
+        return;
+      }
       await api.patch(`/payroll/employees/${sel}/salary`, salForm);
       toast.success("Salary saved!");
       setShowSal(false);
@@ -894,6 +964,13 @@ function PayrollPage() {
   async function saveConfig() {
     setBusy(true);
     try {
+      if (useDemo) {
+        setDemoCfg(cfgForm);
+        toast.success("Config saved! (demo)");
+        setShowCfg(false);
+        setBusy(false);
+        return;
+      }
       await api.patch("/payroll/config", cfgForm);
       toast.success("Payroll config saved!");
       setShowCfg(false);
@@ -970,14 +1047,25 @@ function PayrollPage() {
                     <div style={{fontSize:10,color:"var(--text3)"}}>{p.department||"—"} · P:{p.days_present} A:{p.days_absent}</div>
                   </div>
                   <div style={{textAlign:"right",flexShrink:0,marginRight:8}}>
-                    <div style={{fontSize:13,fontWeight:700,color:"var(--g)"}}>₹{Math.round(p.net_pay).toLocaleString("en-IN")}</div>
-                    <div style={{fontSize:10,color:"#EF4444"}}>-₹{Math.round(p.total_deductions).toLocaleString("en-IN")}</div>
+                    {p.basic_salary > 0 ? (
+                      <>
+                        <div style={{fontSize:13,fontWeight:700,color:"var(--g)"}}>₹{Math.round(p.net_pay).toLocaleString("en-IN")}</div>
+                        <div style={{fontSize:10,color:"#EF4444"}}>-₹{Math.round(p.total_deductions).toLocaleString("en-IN")}</div>
+                      </>
+                    ) : (
+                      <span style={{fontSize:10,color:"#F59E0B",fontWeight:700}}>⚠️ No salary</span>
+                    )}
                   </div>
-                  <span style={{fontSize:10,padding:"3px 8px",borderRadius:6,fontWeight:700,flexShrink:0,
-                    background:p.status==="paid"?"#3ECF8E20":"#F59E0B20",
-                    color:p.status==="paid"?"#3ECF8E":"#F59E0B"}}>
-                    {p.status==="paid"?"PAID":"DRAFT"}
-                  </span>
+                  {p.basic_salary === 0 ? (
+                    <button className="btn btn-g" style={{fontSize:10,padding:"4px 8px",flexShrink:0}}
+                      onClick={e=>{e.stopPropagation();openSalary(p);}}>+ Set</button>
+                  ) : (
+                    <span style={{fontSize:10,padding:"3px 8px",borderRadius:6,fontWeight:700,flexShrink:0,
+                      background:p.status==="paid"?"#3ECF8E20":"#F59E0B20",
+                      color:p.status==="paid"?"#3ECF8E":"#F59E0B"}}>
+                      {p.status==="paid"?"PAID":"DRAFT"}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -1009,6 +1097,14 @@ function PayrollPage() {
                 <div style={{color:"var(--text3)",fontSize:10,marginBottom:4}}>BANK DETAILS</div>
                 <div style={{color:"var(--text)"}}>{selData.bank_name||"Bank"} · ****{selData.bank_account?.slice(-4)}</div>
                 <div style={{color:"var(--text3)",fontSize:11}}>{selData.bank_ifsc}</div>
+              </div>
+            )}
+
+            {selData.basic_salary === 0 && (
+              <div style={{background:"rgba(245,158,11,0.1)",border:"1px solid rgba(245,158,11,0.3)",borderRadius:10,padding:"12px 14px",marginBottom:14,textAlign:"center"}}>
+                <div style={{color:"#F59E0B",fontWeight:700,fontSize:13,marginBottom:4}}>⚠️ No salary configured</div>
+                <div style={{color:"var(--text3)",fontSize:11,marginBottom:10}}>Set this employee's basic salary to generate their payslip.</div>
+                <button className="btn btn-g" style={{fontSize:12}} onClick={()=>openSalary(selData)}>✏️ Set Salary Now</button>
               </div>
             )}
 
@@ -2124,7 +2220,7 @@ function ReportsPage({ leaves, dash, allEmps, analytics, allAtt }) {
 }
 
 // ─── PROFILE PAGE ─────────────────────────────────────────────────────────────
-function ProfilePage({ user, mySum, bals, changePw, busy }) {
+function ProfilePage({ user, mySum, bals, changePw, busy, useDemo, setUser }) {
   const [cur,setCur]=useState(""); const [nxt,setNxt]=useState(""); const [cnf,setCnf]=useState(""); const [msg,setMsg]=useState("");
   const [tab,setTab]=useState("personal");
   const [saving,setSaving]=useState(false);
@@ -2152,9 +2248,13 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
   async function saveEmergency() {
     setSaving(true);
     try {
-      await api.patch("/employees/me/contact", { phone:eForm.phone, emergency_contact:eForm.emergency });
+      if (!useDemo) {
+        await api.patch("/employees/me/contact", { phone:eForm.phone, emergency_contact:eForm.emergency });
+      }
+      // Update local user state so Personal tab reflects new values immediately
+      if (setUser) setUser(u => ({ ...u, phone:eForm.phone, emergency:eForm.emergency }));
       toast.success("Contact details saved!");
-    } catch(e) { toast.error("Failed to save"); }
+    } catch(e) { toast.error("Failed to save: " + e.message); }
     setSaving(false);
   }
 
@@ -2917,7 +3017,7 @@ export default function App() {
         {(nav==="Attendance"||nav==="My Attendance")&&<AttPage isMgr={isMgr} todayRec={todayRec} att={att} mySum={mySum} onCheckIn={handleCheckIn} onCheckOut={handleCheckOut} busy={busy} allAtt={allAtt} allEmps={allEmps}/>}
         {nav==="Employees"    &&<EmpsPage      emps={emps.length?emps:allEmps} setModal={setModal} isAdmin={isAdmin} deactivateEmp={deactivateEmp} busy={busy} user={user}/>}
         {(nav==="Leave"||nav==="Apply Leave")&&<LeavePage isMgr={isMgr} leaves={leaves} myLeaves={myLeaves} pending={pending} bals={bals} reviewLeave={reviewLeave} cancelLeave={cancelLeave} setModal={setModal} busy={busy}/>}
-        {nav==="Payroll" &&(hasFeature(userPlan,"Payroll")?<PayrollPage/>:<LockedFeature name="Payroll" setNav={setNav}/>)}
+        {nav==="Payroll" &&(hasFeature(userPlan,"Payroll")?<PayrollPage useDemo={useDemo} allEmps={allEmps}/>:<LockedFeature name="Payroll" setNav={setNav}/>)}
         {nav==="Performance"  &&<PerfPage      user={user} isMgr={isMgr} emps={emps.length?emps:allEmps} tasks={tasks} updProg={updProg} setModal={setModal}/>}
         {nav==="Announcements"&&<AnnsPage      anns={anns} delAnn={delAnn} isAdmin={isAdmin}/>}
         {nav==="Reports"      &&<ReportsPage   leaves={leaves} dash={dash} allEmps={allEmps} analytics={analytics} allAtt={allAtt}/>}
@@ -2925,7 +3025,7 @@ export default function App() {
         {nav==="Pricing"      &&<PricingPage/>}
         {nav==="Contact Us"   &&<ContactPage plan={contactPlan}/>}
         {nav==="Super Admin"  &&<SuperAdminPage currentUser={user}/>}
-        {nav==="My Profile"   &&<ProfilePage   user={user} mySum={mySum} bals={bals} changePw={changePw} busy={busy}/>}
+        {nav==="My Profile"   &&<ProfilePage   user={user} mySum={mySum} bals={bals} changePw={changePw} busy={busy} useDemo={useDemo} setUser={setUser}/>}
         {nav==="Super Admin" &&<SuperAdminPage/>}
       </main>
     </div>
