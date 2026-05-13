@@ -85,7 +85,7 @@ function LockedFeature({ name }) {
       <div style={{ fontSize:13,color:"var(--text3)",textAlign:"center",maxWidth:320 }}>
         This feature is not included in your current plan. Upgrade to unlock it.
       </div>
-      <button className="btn btn-p" onClick={()=>toast.success("Contact us at support@hrpulse.io to upgrade!")}>
+      <button className="btn btn-p" onClick={()=>toast.success("Go to Contact Us in the sidebar to reach us!")}>
         🚀 Upgrade Plan
       </button>
     </div>
@@ -1380,6 +1380,61 @@ function SuperAdminPage({ currentUser }) {
   );
 }
 
+// ─── CONTACT PAGE ────────────────────────────────────────────────────────────
+function ContactPage({ plan }) {
+  const contacts = [
+    { icon:"📧", label:"Email Us", value:"aamansharmaaman@gmail.com", sub:"We reply within 24 hours", action:()=>window.open("mailto:aamansharmaaman@gmail.com?subject=HRPulse Upgrade Enquiry"+(plan?` - ${plan} Plan`:"")+"&body=Hi, I'm interested in upgrading my HRPulse plan. Please get in touch.") },
+    { icon:"💬", label:"WhatsApp", value:"+91 XXXXX XXXXX", sub:"Chat with us directly", action:()=>window.open("https://wa.me/91XXXXXXXXXX?text=Hi, I'm interested in HRPulse"+(plan?` ${plan} plan`:"")+". Please share more details.") },
+    { icon:"📅", label:"Book a Demo", value:"Schedule a call", sub:"30-min product walkthrough", action:()=>window.open("https://calendly.com") },
+    { icon:"🐦", label:"Twitter / X", value:"@hrpulse", sub:"DM us anytime", action:()=>window.open("https://twitter.com/hrpulse") },
+    { icon:"💼", label:"LinkedIn", value:"HRPulse", sub:"Connect with our team", action:()=>window.open("https://linkedin.com") },
+  ];
+
+  return (
+    <div className="fu" style={{ maxWidth:640,margin:"0 auto" }}>
+      <div style={{ textAlign:"center",marginBottom:36 }}>
+        <div style={{ fontSize:40,marginBottom:12 }}>👋</div>
+        <div style={{ fontSize:26,fontWeight:900,color:"var(--text)",marginBottom:8 }}>Let's talk</div>
+        <div style={{ fontSize:14,color:"var(--text3)",maxWidth:400,margin:"0 auto" }}>
+          {plan ? `You're interested in the ${plan} plan — great choice! Reach out and we'll get you set up.` : "Have a question or want to upgrade? We'd love to hear from you."}
+        </div>
+      </div>
+
+      {plan && (
+        <div style={{ background:"var(--g)11",border:"1px solid var(--g)33",borderRadius:16,padding:"14px 20px",marginBottom:24,display:"flex",alignItems:"center",gap:12 }}>
+          <div style={{ fontSize:24 }}>🚀</div>
+          <div>
+            <div style={{ fontWeight:700,color:"var(--g)",fontSize:14 }}>Interested in {plan} Plan</div>
+            <div style={{ fontSize:12,color:"var(--text3)" }}>Mention this when you reach out for a faster response</div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display:"flex",flexDirection:"column",gap:12,marginBottom:32 }}>
+        {contacts.map(c => (
+          <div key={c.label} onClick={c.action} style={{ display:"flex",alignItems:"center",gap:16,padding:"16px 20px",background:"var(--s2)",border:"1px solid var(--border)",borderRadius:16,cursor:"pointer",transition:"all .2s" }}
+            onMouseEnter={e=>e.currentTarget.style.borderColor="var(--g)"}
+            onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border)"}>
+            <div style={{ fontSize:28,minWidth:40,textAlign:"center" }}>{c.icon}</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontWeight:700,color:"var(--text)",fontSize:14 }}>{c.label}</div>
+              <div style={{ fontSize:13,color:"var(--g)",fontWeight:600 }}>{c.value}</div>
+              <div style={{ fontSize:11,color:"var(--text3)",marginTop:2 }}>{c.sub}</div>
+            </div>
+            <div style={{ color:"var(--text3)",fontSize:18 }}>→</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="card" style={{ textAlign:"center",background:"linear-gradient(135deg,var(--gl),var(--s1))",borderColor:"rgba(62,207,142,0.2)" }}>
+        <div style={{ fontSize:14,fontWeight:700,color:"var(--text)",marginBottom:6 }}>⚡ Average response time</div>
+        <div style={{ fontSize:28,fontWeight:900,color:"var(--g)" }}>{"< 4 hours"}</div>
+        <div style={{ fontSize:12,color:"var(--text3)",marginTop:4 }}>Monday – Saturday, 9am – 7pm IST</div>
+      </div>
+    </div>
+  );
+}
+
 function PricingPage() {
   const plans = [
     { name:"Starter", price:999, per:"month", color:"var(--text2)", badge:"", desc:"For small teams up to 10", features:["GPS Attendance","Selfie Verify","Leave Management","Basic Reports","Email Support"] },
@@ -1403,7 +1458,7 @@ function PricingPage() {
             </div>
             {p.per&&<div style={{ fontSize:11,color:"var(--text3)",marginBottom:20 }}>/{p.per} · billed annually</div>}
             {!p.per&&<div style={{ fontSize:11,color:"var(--text3)",marginBottom:20 }}>contact us for pricing</div>}
-            <button className={`btn ${p.name==="Growth"?"btn-p":"btn-g"}`} style={{ width:"100%",marginBottom:20 }} onClick={()=>toast.success(`${p.name} plan selected! Our team will reach out.`)}>
+            <button className={`btn ${p.name==="Growth"?"btn-p":"btn-g"}`} style={{ width:"100%",marginBottom:20 }} onClick={()=>{ window.dispatchEvent(new CustomEvent("hrpulse-nav",{detail:{nav:"Contact Us",plan:p.name}})); }}>
               {p.price?"Start Free Trial":"Contact Sales"}
             </button>
             <div>
@@ -2012,6 +2067,13 @@ export default function App() {
   const [nav,setNav]       = useState("Overview");
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [userPlan, setUserPlan] = useState(null);
+  const [contactPlan, setContactPlan] = useState(null);
+
+  useEffect(() => {
+    const handler = (e) => { setContactPlan(e.detail?.plan||null); setNav("Contact Us"); };
+    window.addEventListener("hrpulse-nav", handler);
+    return () => window.removeEventListener("hrpulse-nav", handler);
+  }, []);
   const [modal,setModal]   = useState(null);
   const [busy,setBusy]     = useState(false);
   const [clock,setClock]   = useState(new Date());
@@ -2243,12 +2305,12 @@ export default function App() {
   const depts    = Object.keys(DEPT_COLORS);
 
   const NAV_LINKS = isAdmin
-    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing",...(isSuperAdmin===true?["Super Admin"]:[]),"My Profile"]
+    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Contact Us",...(isSuperAdmin===true?["Super Admin"]:[]),"My Profile"]
     : isMgr
-    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Performance","Announcements","My Profile"]
-    : ["Overview","My Attendance","Apply Leave","Announcements","My Profile"];
+    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Performance","Announcements","Contact Us","My Profile"]
+    : ["Overview","My Attendance","Apply Leave","Announcements","Contact Us","My Profile"];
 
-  const ICONS = { Overview:"◈",Analytics:"📊","AI Alerts":"🤖","War Room":"🎯",Attendance:"◷","My Attendance":"◷",Employees:"⊛",Leave:"◇","Apply Leave":"◇",Payroll:"💳",Performance:"◉",Announcements:"📢",Reports:"◎",Onboarding:"🚀",Pricing:"💰","Super Admin":"🛡️","My Profile":"◐" };
+  const ICONS = { Overview:"◈",Analytics:"📊","AI Alerts":"🤖","War Room":"🎯",Attendance:"◷","My Attendance":"◷",Employees:"⊛",Leave:"◇","Apply Leave":"◇",Payroll:"💳",Performance:"◉",Announcements:"📢",Reports:"◎",Onboarding:"🚀",Pricing:"💰","Contact Us":"📞","Super Admin":"🛡️","My Profile":"◐" };
 
   if (boot) return (
     <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)" }}>
@@ -2342,6 +2404,7 @@ export default function App() {
         {nav==="Onboarding"   &&<OnboardingPage/>}
         {nav==="Pricing"      &&<PricingPage/>}
         {nav==="Super Admin"  &&<SuperAdminPage currentUser={user}/>}
+        {nav==="Contact Us"   &&<ContactPage plan={contactPlan}/>}
         {nav==="My Profile"   &&<ProfilePage   user={user} mySum={mySum} bals={bals} changePw={changePw} busy={busy}/>}
       </main>
     </div>
