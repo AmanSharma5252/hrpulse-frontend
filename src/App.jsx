@@ -1844,9 +1844,53 @@ function ReportsPage({ leaves, dash, allEmps, analytics, allAtt }) {
 // ─── PROFILE PAGE ─────────────────────────────────────────────────────────────
 function ProfilePage({ user, mySum, bals, changePw, busy }) {
   const [cur,setCur]=useState(""); const [nxt,setNxt]=useState(""); const [cnf,setCnf]=useState(""); const [msg,setMsg]=useState("");
+  const [tab,setTab]=useState("personal");
+  const [saving,setSaving]=useState(false);
+
+  // Emergency/contact form
+  const [eForm,setEForm]=useState({ phone:user.phone||"", emergency:user.emergency||"" });
+
+  // Bank details form
+  const [bForm,setBForm]=useState({ bank_account:"", bank_ifsc:"", bank_name:"" });
+
+  useEffect(()=>{
+    // Load bank details from /auth/me
+    api.get("/auth/me").then(d=>{
+      setBForm({
+        bank_account: d.user?.bank_account||"",
+        bank_ifsc:    d.user?.bank_ifsc||"",
+        bank_name:    d.user?.bank_name||"",
+      });
+      setEForm({ phone:d.user?.phone||"", emergency:d.user?.emergency_contact||"" });
+    }).catch(()=>{});
+  },[]);
+
   const go=async()=>{ if(!cur||!nxt){setMsg("Fill all fields.");return;} if(nxt!==cnf){setMsg("Passwords don't match.");return;} if(nxt.length<6){setMsg("Min 6 chars.");return;} const ok=await changePw(cur,nxt); if(ok){setMsg("✓ Updated!");setCur("");setNxt("");setCnf("");} };
+
+  async function saveEmergency() {
+    setSaving(true);
+    try {
+      await api.patch(`/employees/${user.id}`, { phone:eForm.phone, emergency_contact:eForm.emergency });
+      toast.success("Contact details saved!");
+    } catch(e) { toast.error("Failed to save"); }
+    setSaving(false);
+  }
+
+  async function saveBank() {
+    setSaving(true);
+    try {
+      await api.patch("/payroll/bank-details", { bank_account:bForm.bank_account, bank_ifsc:bForm.bank_ifsc, bank_name:bForm.bank_name });
+      toast.success("Bank details saved!");
+    } catch(e) { toast.error("Failed to save bank details"); }
+    setSaving(false);
+  }
+
+  const TABS = ["personal","bank","emergency","password"];
+  const TAB_LABELS = { personal:"👤 Personal", bank:"🏦 Bank Details", emergency:"🆘 Emergency", password:"🔑 Password" };
+
   return (
-    <div className="fu" style={{ maxWidth:620 }}>
+    <div className="fu" style={{ maxWidth:650 }}>
+      {/* Header */}
       <div className="card" style={{ marginBottom:14 }}>
         <div style={{ display:"flex",gap:18,alignItems:"center" }}>
           <Av emp={user} size={60}/>
@@ -1857,6 +1901,8 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
           </div>
         </div>
       </div>
+
+      {/* Stats */}
       {mySum&&(
         <div className="g4" style={{ marginBottom:14 }}>
           {[["Present",mySum.present,"var(--g)"],["Late",mySum.late,"#F59E0B"],["On Leave",mySum.on_leave,"#8B5CF6"],["Hours",`${Math.round((mySum.total_minutes||0)/60)}h`,"#3B82F6"]].map(([l,v,c])=>(
@@ -1867,38 +1913,106 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
           ))}
         </div>
       )}
-      <div className="card" style={{ marginBottom:14 }}>
-        <div className="sect">Personal Details</div>
-        {[["Code",user.code],["Email",user.email],["Phone",user.phone||"—"],["Department",user.dept],["Role",user.role],["Hire Date",user.hireDate||"—"],["Emergency",user.emergency||"—"]].map(([k,v])=>(
-          <div key={k} style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border)",fontSize:13 }}>
-            <span style={{ color:"var(--text3)" }}>{k}</span>
-            <span style={{ color:"var(--text)",fontWeight:500,textAlign:"right",maxWidth:260,wordBreak:"break-all" }}>{v}</span>
-          </div>
+
+      {/* Tabs */}
+      <div style={{ display:"flex",gap:6,marginBottom:14,flexWrap:"wrap" }}>
+        {TABS.map(t=>(
+          <button key={t} onClick={()=>setTab(t)}
+            style={{ padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:600,border:"none",cursor:"pointer",
+              background:tab===t?"var(--g)":"var(--s2)",
+              color:tab===t?"#000":"var(--text3)" }}>
+            {TAB_LABELS[t]}
+          </button>
         ))}
       </div>
-      {bals.filter(b=>b.total_days>0).length>0&&(
+
+      {/* Personal Tab */}
+      {tab==="personal"&&(
         <div className="card" style={{ marginBottom:14 }}>
-          <div className="sect">Leave Balances</div>
-          {bals.filter(b=>b.total_days>0).map(b=>{const used=b.used_days||0,left=b.total_days-used-(b.pending_days||0);return(
-            <div key={b.id} style={{ padding:"8px 0",borderBottom:"1px solid var(--border)" }}>
-              <div style={{ display:"flex",justifyContent:"space-between",marginBottom:5 }}>
-                <span style={{ fontSize:12,color:"var(--text2)" }}>{b.leave_type?.name}</span>
-                <span style={{ fontSize:12,fontWeight:700,color:"var(--g)" }}>{left} / {b.total_days}</span>
-              </div>
-              <div className="pb"><div className="pf" style={{ width:`${b.total_days>0?Math.round(used/b.total_days*100):0}%`,background:"linear-gradient(90deg,var(--g)55,var(--g))" }}/></div>
-              {b.pending_days>0&&<div style={{ fontSize:10,color:"#F59E0B",marginTop:3 }}>{b.pending_days} pending</div>}
+          <div className="sect">Personal Details</div>
+          {[["Employee Code",user.code],["Email",user.email],["Phone",user.phone||"—"],["Department",user.dept],["Role",user.role],["Hire Date",user.hireDate||"—"]].map(([k,v])=>(
+            <div key={k} style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border)",fontSize:13 }}>
+              <span style={{ color:"var(--text3)" }}>{k}</span>
+              <span style={{ color:"var(--text)",fontWeight:500,textAlign:"right",maxWidth:260,wordBreak:"break-all" }}>{v}</span>
             </div>
-          );})}
+          ))}
+          {bals.filter(b=>b.total_days>0).length>0&&(
+            <>
+              <div className="sect" style={{ marginTop:16 }}>Leave Balances</div>
+              {bals.filter(b=>b.total_days>0).map(b=>{const used=b.used_days||0,left=b.total_days-used-(b.pending_days||0);return(
+                <div key={b.id} style={{ padding:"8px 0",borderBottom:"1px solid var(--border)" }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",marginBottom:5 }}>
+                    <span style={{ fontSize:12,color:"var(--text2)" }}>{b.leave_type?.name}</span>
+                    <span style={{ fontSize:12,fontWeight:700,color:"var(--g)" }}>{left} / {b.total_days}</span>
+                  </div>
+                  <div className="pb"><div className="pf" style={{ width:`${b.total_days>0?Math.round(used/b.total_days*100):0}%`,background:"linear-gradient(90deg,var(--g)55,var(--g))" }}/></div>
+                  {b.pending_days>0&&<div style={{ fontSize:10,color:"#F59E0B",marginTop:3 }}>{b.pending_days} pending</div>}
+                </div>
+              );})}
+            </>
+          )}
         </div>
       )}
-      <div className="card">
-        <div className="sect">Change Password</div>
-        <F label="Current Password"><input type="password" value={cur} onChange={e=>setCur(e.target.value)} placeholder="Current password"/></F>
-        <F label="New Password"><input type="password" value={nxt} onChange={e=>setNxt(e.target.value)} placeholder="Min 6 characters"/></F>
-        <F label="Confirm New Password"><input type="password" value={cnf} onChange={e=>setCnf(e.target.value)} placeholder="Repeat new password" onKeyDown={e=>e.key==="Enter"&&go()}/></F>
-        {msg&&<div style={{ fontSize:12,color:msg.startsWith("✓")?"var(--g)":"#EF4444",marginBottom:10 }}>{msg}</div>}
-        <button className="btn btn-p" onClick={go} disabled={busy}>{busy?<Spin/>:"Update Password"}</button>
-      </div>
+
+      {/* Bank Details Tab */}
+      {tab==="bank"&&(
+        <div className="card" style={{ marginBottom:14 }}>
+          <div className="sect">🏦 Bank Account Details</div>
+          <div style={{ fontSize:12,color:"var(--text3)",marginBottom:16 }}>Your salary will be credited to this account</div>
+          <F label="Bank Name">
+            <input value={bForm.bank_name} onChange={e=>setBForm(p=>({...p,bank_name:e.target.value}))} placeholder="e.g. HDFC Bank"/>
+          </F>
+          <F label="Account Number">
+            <input value={bForm.bank_account} onChange={e=>setBForm(p=>({...p,bank_account:e.target.value}))} placeholder="e.g. 1234567890"/>
+          </F>
+          <F label="IFSC Code">
+            <input value={bForm.bank_ifsc} onChange={e=>setBForm(p=>({...p,bank_ifsc:e.target.value.toUpperCase()}))} placeholder="e.g. HDFC0001234"/>
+          </F>
+          {bForm.bank_account&&(
+            <div style={{ background:"rgba(62,207,142,0.06)",borderRadius:10,padding:"12px 14px",marginBottom:14,fontSize:12 }}>
+              <div style={{ color:"var(--text3)",fontSize:10,marginBottom:4 }}>SAVED ACCOUNT</div>
+              <div style={{ color:"var(--text)",fontWeight:600 }}>{bForm.bank_name||"Bank"}</div>
+              <div style={{ color:"var(--text3)" }}>****{bForm.bank_account.slice(-4)} · {bForm.bank_ifsc}</div>
+            </div>
+          )}
+          <button className="btn btn-g" onClick={saveBank} disabled={saving} style={{ width:"100%" }}>
+            {saving?"Saving...":"💾 Save Bank Details"}
+          </button>
+        </div>
+      )}
+
+      {/* Emergency Contact Tab */}
+      {tab==="emergency"&&(
+        <div className="card" style={{ marginBottom:14 }}>
+          <div className="sect">🆘 Emergency & Contact Details</div>
+          <div style={{ fontSize:12,color:"var(--text3)",marginBottom:16 }}>Update your phone number and emergency contact information</div>
+          <F label="Your Phone Number">
+            <input value={eForm.phone} onChange={e=>setEForm(p=>({...p,phone:e.target.value}))} placeholder="+91 98100 00000"/>
+          </F>
+          <F label="Emergency Contact Name & Phone">
+            <input value={eForm.emergency} onChange={e=>setEForm(p=>({...p,emergency:e.target.value}))} placeholder="e.g. Rahul Sharma — +91 98200 00000"/>
+          </F>
+          <div style={{ background:"rgba(239,68,68,0.06)",borderRadius:10,padding:"12px 14px",marginBottom:14,fontSize:12,border:"1px solid rgba(239,68,68,0.15)" }}>
+            <div style={{ color:"#EF4444",fontWeight:700,marginBottom:4 }}>⚠️ Important</div>
+            <div style={{ color:"var(--text3)" }}>This contact will be reached in case of emergency. Please keep it updated.</div>
+          </div>
+          <button className="btn btn-g" onClick={saveEmergency} disabled={saving} style={{ width:"100%" }}>
+            {saving?"Saving...":"💾 Save Contact Details"}
+          </button>
+        </div>
+      )}
+
+      {/* Password Tab */}
+      {tab==="password"&&(
+        <div className="card">
+          <div className="sect">🔑 Change Password</div>
+          <F label="Current Password"><input type="password" value={cur} onChange={e=>setCur(e.target.value)} placeholder="Current password"/></F>
+          <F label="New Password"><input type="password" value={nxt} onChange={e=>setNxt(e.target.value)} placeholder="Min 6 characters"/></F>
+          <F label="Confirm New Password"><input type="password" value={cnf} onChange={e=>setCnf(e.target.value)} placeholder="Repeat new password" onKeyDown={e=>e.key==="Enter"&&go()}/></F>
+          {msg&&<div style={{ fontSize:12,color:msg.startsWith("✓")?"var(--g)":"#EF4444",marginBottom:10 }}>{msg}</div>}
+          <button className="btn btn-p" onClick={go} disabled={busy} style={{ width:"100%" }}>{busy?<Spin/>:"Update Password"}</button>
+        </div>
+      )}
     </div>
   );
 }
