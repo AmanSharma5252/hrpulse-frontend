@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { io } from "socket.io-client";
 import toast, { Toaster } from "react-hot-toast";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -2006,7 +2005,6 @@ function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo, comp
                       </>}
                       <div style={{ marginTop:plan.locked.length?16:0 }}>
                         <div style={{ fontSize:11,fontWeight:700,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>👥 EMPLOYEES ({co.emps.length})</div>
-                        const { gps, getLocation } = useGPS();
                         <div style={{ maxHeight:160,overflowY:"auto",display:"flex",flexDirection:"column",gap:4 }}>
                           {co.emps.map(e=>(
                             <div key={e.id} style={{ display:"flex",alignItems:"center",gap:8,padding:"4px 8px",background:"var(--s3)",borderRadius:7 }}>
@@ -2107,20 +2105,6 @@ export default function App() {
     { id:"a3",title:"Q2 Appraisal Cycle Begins",body:"Performance reviews for Q2 will start May 15. Managers please complete KPI inputs by May 20.",tag:"HR",urgent:false,author:"Priya Sharma",at:Date.now()-172800000 },
   ]);
 
-  const socketRef = useRef(null);
-
-  useEffect(() => {
-    if (!user?.id) return;
-    const SOCKET_URL = (import.meta.env.VITE_API_URL || "http://localhost:4000/api/v1").replace("/api/v1", "");
-    const socket = io(SOCKET_URL, { auth: { token: _at }, query: { companyId: user.company_id || "demo" }, transports: ["websocket"] });
-    socketRef.current = socket;
-    socket.on("subscription:updated", (data) => {
-      if (data.plan) { const planName = data.plan.name?.toLowerCase() || "growth"; setUser(prev => prev ? { ...prev, plan: planName } : prev); toast.success(`Your plan has been updated to ${data.plan.display_name || data.plan.name}!`); }
-      const status = data.status || data.subscription?.status;
-      if (status) { const suspended = status === "suspended" || status === "cancelled"; setCompanySuspended(suspended); if (suspended) toast.error("Your account has been suspended by the administrator."); else toast.success("Your account has been reactivated!"); }
-    });
-    return () => { socket.disconnect(); socketRef.current = null; };
-  }, [user?.id]);
   const { gps, getLocation } = useGPS();
   useEffect(()=>{const id=setInterval(()=>setClock(new Date()),1000);return()=>clearInterval(id);},[]);
 
