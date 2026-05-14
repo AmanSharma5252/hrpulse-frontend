@@ -46,6 +46,7 @@ async function call(path, opts = {}, retry = true) {
     } catch {}
     clearTokens(); window.location.reload(); return null;
   }
+  // ✅ FIX: Capture 403 suspended responses before throwing
   if (res.status === 403) {
     const data = await res.json().catch(() => ({}));
     const err = new Error(data.error || data.message || "Access denied");
@@ -612,6 +613,7 @@ function LoginPage({ onLogin, CSS }) {
     setLoading(true); setErr("");
     const r=await onLogin(email.trim(),pw);
     if(r!==true) {
+      // ✅ FIX: Show suspension message on login if company is suspended
       if (typeof r === "string" && r.toLowerCase().includes("suspended")) {
         setErr("🚫 " + r);
       } else {
@@ -1400,7 +1402,7 @@ function AttPage({ isMgr, todayRec, att, mySum, onCheckIn, onCheckOut, busy, all
               <div key={r.id||r.date} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid var(--border)" }}>
                 <div>
                   <div style={{ fontSize:13,fontWeight:600,color:"var(--text)" }}>{new Date(r.date).toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})}</div>
-                  <div style={{ fontSize:11,color:"var(--text3)" }}>In: {fmtT(r.check_in)} · Out: {fmtT(r.check_out)} · {fmtH(r.work_minutes)} {r.latitude?"📍":""}{r.selfie_in?"📸":""}{r.early_checkout?"⚡ Early":""}</div>
+                  <div style={{ fontSize:11,color:"var(--text3)" }}>In: {fmtT(r.check_in)} · Out: {fmtT(r.check_out)} · {fmtH(r.work_minutes)} {r.latitude?"📍":""}{r.selfie_in?"📸":""}</div>
                 </div>
                 <Badge s={r.status}/>
               </div>
@@ -1431,7 +1433,7 @@ function AttPage({ isMgr, todayRec, att, mySum, onCheckIn, onCheckOut, busy, all
                 <div style={{ width:34,height:34,borderRadius:9,background:"var(--s2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"var(--g)",flexShrink:0 }}>{r.employee?.avatar_initials||"?"}</div>
                 <div style={{ flex:1,minWidth:0 }}>
                   <div style={{ fontSize:13,fontWeight:600,color:"var(--text)" }}>{r.employee?.name||"—"}</div>
-                  <div style={{ fontSize:11,color:"var(--text3)" }}>{r.employee?.department} {r.latitude?"📍":""}{r.selfie_in?"📸":""}{r.early_checkout?<span style={{color:"#F59E0B"}}> ⚡Early</span>:""}</div>
+                  <div style={{ fontSize:11,color:"var(--text3)" }}>{r.employee?.department} {r.latitude?"📍":""}{r.selfie_in?"📸":""}</div>
                 </div>
                 <div style={{ textAlign:"right",fontSize:11,color:"var(--text2)",marginRight:10 }}>
                   <div>In: {fmtT(r.check_in)}</div><div>Out: {fmtT(r.check_out)}</div>
@@ -1767,52 +1769,12 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
 }
 
 // ─── MODAL HUB ────────────────────────────────────────────────────────────────
-function ModalHub({ modal, setModal, emps, ltypes, bals, user, depts, busy, applyLeave, addEmp, updateEmp, addTask, addAnn, checkOut }) {
+function ModalHub({ modal, setModal, emps, ltypes, bals, user, depts, busy, applyLeave, addEmp, updateEmp, addTask, addAnn }) {
   const [f,setF]=useState(modal.emp?{...modal.emp,dept:modal.emp.dept}:{});
   const s=(k,v)=>setF(p=>({...p,[k]:v}));
   const close=()=>setModal(null);
   const Ttl=({t})=><div style={{ fontSize:18,fontWeight:800,color:"var(--text)",marginBottom:20,letterSpacing:-.3 }}>{t}</div>;
   const Acts=({label,onClick,off})=><div style={{ display:"flex",gap:10,justifyContent:"flex-end",marginTop:18 }}><button className="btn btn-g" onClick={close}>Cancel</button><button className="btn btn-p" onClick={onClick} disabled={off||busy}>{busy?<Spin/>:label}</button></div>;
-
-  // ✅ NEW: Early Checkout Modal
-  if (modal.type==="earlyCheckout") {
-    return (
-      <>
-        <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
-          <div style={{ width:48,height:48,borderRadius:12,background:"rgba(245,158,11,0.12)",border:"1px solid rgba(245,158,11,0.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0 }}>⚠️</div>
-          <div>
-            <div style={{ fontSize:18,fontWeight:800,color:"#F59E0B",letterSpacing:-.3 }}>Early Checkout</div>
-            <div style={{ fontSize:11,color:"var(--text3)",marginTop:2 }}>Your shift isn't complete yet</div>
-          </div>
-        </div>
-        <div style={{ background:"rgba(245,158,11,0.06)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:10,padding:"12px 14px",fontSize:12,color:"#F59E0B",marginBottom:16,lineHeight:1.7 }}>
-          {modal.message}
-        </div>
-        <F label="Reason for Early Checkout *">
-          <textarea
-            rows={3}
-            value={f.reason||""}
-            onChange={e=>s("reason",e.target.value)}
-            placeholder="e.g. Doctor appointment, family emergency, client visit..."
-            style={{ resize:"vertical" }}
-          />
-        </F>
-        <div style={{ fontSize:11,color:"var(--text3)",marginBottom:16 }}>
-          ℹ️ This will be recorded as an early checkout and visible to your manager.
-        </div>
-        <div style={{ display:"flex",gap:10,justifyContent:"flex-end" }}>
-          <button className="btn btn-g" onClick={close}>Cancel</button>
-          <button
-            className="btn btn-w"
-            disabled={!f.reason||busy}
-            onClick={()=>{ close(); checkOut(null, f.reason); }}
-          >
-            {busy?<Spin/>:"Submit & Clock Out"}
-          </button>
-        </div>
-      </>
-    );
-  }
 
   if (modal.type==="addLeave") {
     const td=todayStr(); const avail=id=>{const b=bals.find(b=>b.leave_type_id===id);return b?b.total_days-(b.used_days||0)-(b.pending_days||0):0;};
@@ -2124,7 +2086,10 @@ export default function App() {
   const [allEmps,setAllEmps]=useState(()=>loadDemoState("allEmps",SEED_EMPLOYEES.map(eNorm)));
   const [companies,setCompanies]=useState([]);
   const [useDemo,setUseDemo]=useState(false);
+
+  // ✅ FIX: Real-time suspension state (set by boot check + loadAll)
   const [companySuspended, setCompanySuspended] = useState(false);
+
   const [upgradeModal, setUpgradeModal] = useState(null);
 
   const [tasks,setTasks]   = useState([
@@ -2143,19 +2108,29 @@ export default function App() {
   const { gps, getLocation } = useGPS();
   useEffect(()=>{const id=setInterval(()=>setClock(new Date()),1000);return()=>clearInterval(id);},[]);
 
+  // ✅ FIX: Boot — check suspension + fresh plan from DB immediately
   useEffect(()=>{
     (async()=>{
       if (_at) {
         try {
           const { user:u } = await api.get("/auth/me");
           setUser(eNorm(u));
+          // Check suspension for non-super-admins
           if (u?.company_id && u?.role !== "super_admin") {
+            // plan is already fresh from /auth/me (we fixed that endpoint)
             if (u?.plan) setUser(prev => prev ? {...prev, plan: u.plan} : prev);
           }
         } catch(err) {
+          // ✅ FIX: 403 with suspended flag — show suspension screen
           if (err?.suspended || err?.message?.toLowerCase?.().includes("suspended")) {
+            // Try to get user info to show their name before clearing
             setCompanySuspended(true);
-            try { const stored = localStorage.getItem("hp_user"); if (stored) setUser(JSON.parse(stored)); } catch {}
+            // Still set a minimal user so suspension screen can show logout
+            try {
+              // We can't get /me if suspended, so just set a placeholder
+              const stored = localStorage.getItem("hp_user");
+              if (stored) setUser(JSON.parse(stored));
+            } catch {}
           } else {
             clearTokens();
           }
@@ -2172,16 +2147,19 @@ export default function App() {
   useEffect(()=>{ if(user) loadAll(); },[user?.id]);
 
   async function loadAll() {
+    // ✅ FIX: Always re-check suspension + fresh plan on every data reload (not just boot)
     if (!useDemo && _at && user?.company_id && user?.role !== "super_admin") {
       try {
         const freshMe = await api.get("/auth/me");
         setCompanySuspended(false);
+        // Update plan in user state if changed by super admin
         if (freshMe?.user?.plan) {
           setUser(prev => prev ? {...prev, plan: freshMe.user.plan} : prev);
         }
       } catch(e) {
         if (e?.suspended || e?.message?.toLowerCase?.().includes("suspended")) {
-          setCompanySuspended(true); return;
+          setCompanySuspended(true);
+          return; // stop loading data if suspended
         }
       }
     }
@@ -2223,8 +2201,13 @@ export default function App() {
       saveTokens(d.access_token,d.refresh_token);
       setUser(eNorm(d.user)); setNav("Overview"); return true;
     } catch(apiErr) {
-      if (apiErr?.suspended) return "Your company account has been suspended. Please contact support.";
-      if (apiErr?.status === 403) return apiErr.message || "Access denied.";
+      // ✅ FIX: Handle suspended company at login
+      if (apiErr?.suspended) {
+        return "Your company account has been suspended. Please contact support.";
+      }
+      if (apiErr?.status === 403) {
+        return apiErr.message || "Access denied.";
+      }
       const isNetworkErr = apiErr.message && apiErr.message.includes("Network error");
       if (!isNetworkErr && !isDemo) return apiErr.message || "Invalid email or password";
     }
@@ -2252,7 +2235,7 @@ export default function App() {
     clearTokens(); clearDemoState();
     setUser(null); setEmps([]); setLeaves([]); setDash(null);
     setUseDemo(false); setAllEmps(SEED_EMPLOYEES.map(eNorm));
-    setCompanySuspended(false);
+    setCompanySuspended(false); // ✅ FIX: reset suspension state on logout
   };
 
   const checkIn=async(selfie=null)=>{
@@ -2274,47 +2257,23 @@ export default function App() {
     } catch(e) { toast.error(e.message); }
     setBusy(false);
   };
-
-  // ✅ NEW: checkOut now supports early checkout with reason
-  const checkOut=async(selfie=null, earlyReason=null)=>{
+  const checkOut=async(selfie=null)=>{
     setBusy(true);
     try {
       if (!useDemo) {
         const loc=await getLocation();
-        const body = { latitude:loc.lat, longitude:loc.lng, selfie_base64:selfie };
-        if (earlyReason) body.early_checkout_reason = earlyReason;
-        let d;
-        try {
-          d = await api.post("/attendance/checkout", body);
-        } catch(apiErr) {
-          // Backend says early checkout required — show reason modal
-          if (apiErr?.message?.toLowerCase().includes("early") || apiErr?.message?.toLowerCase().includes("shift") || apiErr?.message?.toLowerCase().includes("hours")) {
-            setModal({ type:"earlyCheckout", message: apiErr.message });
-            setBusy(false); return;
-          }
-          throw apiErr;
-        }
-        toast.success(`${d.message}${d.work_minutes ? ` · ${fmtH(d.work_minutes)} worked` : ""}`);
-        loadAll();
+        const d=await api.post("/attendance/checkout",{latitude:loc.lat,longitude:loc.lng,selfie_base64:selfie});
+        toast.success(`${d.message}${d.work_minutes?` · ${fmtH(d.work_minutes)} worked`:""}`); loadAll();
       } else {
         await new Promise(r=>setTimeout(r,600));
         const now=new Date();
-        const todayAttRec = att.find(r=>r.date===todayStr());
-        const mins = todayAttRec?.check_in ? Math.round((now-new Date(todayAttRec.check_in))/60000) : 0;
-        // Demo: check early checkout (8h = 480 mins)
-        if (mins < 480 && !earlyReason) {
-          const wH=Math.floor(mins/60), wM=mins%60, rH=Math.floor((480-mins)/60), rM=(480-mins)%60;
-          setModal({ type:"earlyCheckout", message:`You have only worked ${wH}h ${wM}m. Full shift is 8 hours (${rH}h ${rM}m remaining). Please provide a reason for early checkout.` });
-          setBusy(false); return;
-        }
-        setAtt(p=>p.map(r=>r.date===todayStr()?{...r,check_out:now.toISOString(),work_minutes:mins,early_checkout:mins<480,early_checkout_reason:earlyReason||null}:r));
-        setAllAtt(p=>p.map(r=>r.date===todayStr()&&r.employee_id===user.id?{...r,check_out:now.toISOString(),work_minutes:mins,early_checkout:mins<480}:r));
-        toast.success(earlyReason ? `Early checkout recorded — ${Math.floor(mins/60)}h ${mins%60}m worked` : "Clocked out! Great work today 👋");
+        setAtt(p=>p.map(r=>r.date===todayStr()?{...r,check_out:now.toISOString(),work_minutes:Math.round((now-new Date(r.check_in))/60000)}:r));
+        setAllAtt(p=>p.map(r=>r.date===todayStr()&&r.employee_id===user.id?{...r,check_out:now.toISOString(),work_minutes:Math.round((now-new Date(r.check_in))/60000)}:r));
+        toast.success("Clocked out! Great work today 👋");
       }
     } catch(e) { toast.error(e.message); }
     setBusy(false);
   };
-
   const handleCheckIn  = ()=>setModal({type:"selfie",action:"in"});
   const handleCheckOut = ()=>setModal({type:"selfie",action:"out"});
 
@@ -2385,7 +2344,11 @@ export default function App() {
   const depts    = Object.keys(DEPT_COLORS);
 
   const userCompanyId = user?.company_id || "demo";
+
+  // ✅ FIX: Prefer fresh plan from user.plan (set by loadAll from DB), fallback to demo storage
   const userPlan = user?.plan?.name || user?.plan || loadDemoState("companyPlans",{})[userCompanyId] || "growth";
+
+  // ✅ FIX: Real-time suspension — uses state (set from backend) + demo local storage fallback
   const isCompanySuspended = !isSuperAdmin && (
     companySuspended ||
     (useDemo && loadDemoState("companyStatus",{})[userCompanyId] === false)
@@ -2407,7 +2370,10 @@ export default function App() {
     : ["Overview","My Attendance","Apply Leave","Announcements","My Profile"];
 
   const ICONS = { Overview:"◈",Analytics:"📊","AI Alerts":"🤖","War Room":"🎯",Attendance:"◷","My Attendance":"◷",Employees:"⊛",Leave:"◇","Apply Leave":"◇",Payroll:"💳",Performance:"◉",Announcements:"📢",Reports:"◎",Onboarding:"🚀",Pricing:"💰","Platform Admin":"🛡","My Profile":"◐" };
-  const LOCKED_BY_PLAN = !isSuperAdmin && userPlan==="starter" ? ["Analytics","AI Alerts","War Room","Payroll"] : [];
+
+  const LOCKED_BY_PLAN = !isSuperAdmin && userPlan==="starter"
+    ? ["Analytics","AI Alerts","War Room","Payroll"]
+    : [];
 
   if (boot) return (
     <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)" }}>
@@ -2418,6 +2384,7 @@ export default function App() {
     </div>
   );
 
+  // ✅ FIX: Suspension screen — shown before login screen, blocks all access
   if (user && isCompanySuspended) return (
     <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)",textAlign:"center",padding:24 }}>
       <style>{CSS}</style>
@@ -2451,11 +2418,11 @@ export default function App() {
       )}
 
       {modal&&(
-        <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&modal.type!=="earlyCheckout"&&setModal(null)}>
+        <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
           <div className="modal">
             {modal.type==="selfie"
               ? <SelfieCapture onCapture={photo=>{setModal(null);modal.action==="in"?checkIn(photo):checkOut(photo);}} onSkip={()=>{setModal(null);modal.action==="in"?checkIn(null):checkOut(null);}}/>
-              : <ModalHub modal={modal} setModal={setModal} emps={emps.length?emps:allEmps} ltypes={ltypes} bals={bals} user={user} depts={depts} busy={busy} applyLeave={applyLeave} addEmp={addEmp} updateEmp={updateEmp} addTask={addTask} addAnn={addAnn} checkOut={checkOut}/>
+              : <ModalHub modal={modal} setModal={setModal} emps={emps.length?emps:allEmps} ltypes={ltypes} bals={bals} user={user} depts={depts} busy={busy} applyLeave={applyLeave} addEmp={addEmp} updateEmp={updateEmp} addTask={addTask} addAnn={addAnn}/>
             }
           </div>
         </div>
@@ -2469,6 +2436,7 @@ export default function App() {
             <span className="ldot"/>
             <span style={{ fontSize:10,color:"var(--g)",fontWeight:600 }}>{useDemo?"Demo Mode":"Live"}</span>
           </div>
+          {/* ✅ FIX: Show current plan in sidebar so user sees it update */}
           {!isSuperAdmin && (
             <div style={{ marginTop:6,fontSize:9,color:"var(--text3)",letterSpacing:.5 }}>
               Plan: <span style={{ color: userPlan==="enterprise"?"#FB923C":userPlan==="growth"?"var(--g)":"#3B82F6", fontWeight:700, textTransform:"uppercase" }}>{userPlan}</span>
@@ -2483,10 +2451,16 @@ export default function App() {
             <div
               key={n}
               className={`nav${isActive?" on":""}${isLocked?" locked-nav":""}`}
-              onClick={()=>{ if (isLocked) { setUpgradeModal(n); } else { setNav(n); } }}
+              onClick={()=>{
+                if (isLocked) { setUpgradeModal(n); } else { setNav(n); }
+              }}
             >
-              <span style={{ fontSize:12, flexShrink:0 }}>{isLocked ? "🔒" : (ICONS[n]||"·")}</span>
-              <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1, color: isLocked ? "var(--text3)" : undefined }}>{n}</span>
+              <span style={{ fontSize:12, flexShrink:0 }}>
+                {isLocked ? "🔒" : (ICONS[n]||"·")}
+              </span>
+              <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1, color: isLocked ? "var(--text3)" : undefined }}>
+                {n}
+              </span>
               {isLocked && (
                 <span style={{ fontSize:9,fontWeight:700,padding:"1px 6px",borderRadius:10,background:"rgba(245,158,11,0.15)",color:"#F59E0B",border:"1px solid rgba(245,158,11,0.3)",flexShrink:0 }}>PRO</span>
               )}
