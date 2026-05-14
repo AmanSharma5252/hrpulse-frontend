@@ -1756,7 +1756,7 @@ function ModalHub({ modal, setModal, emps, ltypes, bals, user, depts, busy, appl
 
 
 // ─── PLATFORM ADMIN PAGE ──────────────────────────────────────────────────────
-function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo }) {
+function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo, companiesFromDB=[] }) {
   // ── Plan definitions ──────────────────────────────────────────────────────
   const PLANS = {
     starter:    { name:"Starter",    price:"₹999/mo",   color:"#3B82F6", empLimit:10,  features:["GPS Attendance","Selfie Verify","Leave Management","Basic Reports","Email Support"], locked:["AI Alerts","Payroll","War Room","Analytics","QR Attendance"] },
@@ -1773,30 +1773,60 @@ function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo }) {
   const [busy, setBusy]           = useState(false);
   const [expandedCo, setExpandedCo] = useState(null);
 
-  // ── Build company list from allEmps ───────────────────────────────────────
+  // ── Build company list — prefer real DB data, fall back to allEmps grouping ──
   const [companyPlans, setCompanyPlans] = useState(()=>loadDemoState("companyPlans",{}));
   const [companyStatus, setCompanyStatus] = useState(()=>loadDemoState("companyStatus",{}));
 
-  const companies = Object.values(
-    allEmps.reduce((acc, e) => {
-      const cid = e.company_id || "demo";
-      if (!acc[cid]) acc[cid] = { id:cid, name:cid==="demo"?"Demo Company":("Company "+cid.slice(0,8)), emps:[], plan: companyPlans[cid]||"growth", active: companyStatus[cid]!==false };
-      acc[cid].emps.push(e);
-      return acc;
-    }, {})
-  );
+  // Group allEmps by company_id for employee lists
+  const empsByCompany = allEmps.reduce((acc, e) => {
+    const cid = e.company_id || "demo";
+    if (!acc[cid]) acc[cid] = [];
+    acc[cid].push(e);
+    return acc;
+  }, {});
 
-  const changePlan = (coId, newPlan) => {
+  // Build companies from DB data if available, else from allEmps grouping
+  const companies = companiesFromDB.length > 0
+    ? companiesFromDB.map(co => ({
+        id:     co.id,
+        name:   co.name,
+        emps:   empsByCompany[co.id] || [],
+        plan:   companyPlans[co.id] || co.plan || "growth",
+        active: companyStatus[co.id] !== undefined ? companyStatus[co.id] : (co.is_active !== false),
+        adminName: co.admin_name,
+        industry: co.industry,
+        size: co.size,
+        empCount: co.employee_count,
+        createdAt: co.created_at,
+      }))
+    : Object.values(
+        allEmps.reduce((acc, e) => {
+          const cid = e.company_id || "demo";
+          if (!acc[cid]) acc[cid] = { id:cid, name:cid==="demo"?"Demo Company":("Company "+cid.slice(0,8)), emps:[], plan: companyPlans[cid]||"growth", active: companyStatus[cid]!==false };
+          acc[cid].emps.push(e);
+          return acc;
+        }, {})
+      );
+
+  const changePlan = async (coId, newPlan) => {
+    // Save locally always
     const updated = {...companyPlans, [coId]: newPlan};
     setCompanyPlans(updated);
     saveDemoState("companyPlans", updated);
+    // Also save to DB if live
+    if (!useDemo) {
+      try { await api.patch(`/companies/${coId}/plan`, { plan: newPlan }); } catch {}
+    }
     toast.success(`Plan updated to ${PLANS[newPlan].name}!`);
   };
 
-  const toggleCompany = (coId, active) => {
+  const toggleCompany = async (coId, active) => {
     const updated = {...companyStatus, [coId]: active};
     setCompanyStatus(updated);
     saveDemoState("companyStatus", updated);
+    if (!useDemo) {
+      try { await api.patch(`/companies/${coId}/status`, { active }); } catch {}
+    }
     toast.success(active ? "Company activated!" : "Company suspended!");
   };
 
@@ -1877,7 +1907,7 @@ function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo }) {
                       {!co.active&&<span style={{ fontSize:10,fontWeight:700,padding:"2px 9px",borderRadius:20,background:"#EF444422",color:"#EF4444" }}>SUSPENDED</span>}
                     </div>
                     <div style={{ fontSize:11,color:"var(--text3)",marginTop:3 }}>
-                      Admin: <span style={{color:"var(--text)"}}>{adminEmp?.name||"—"}</span> · {co.emps.length}/{plan.empLimit==="9999"?"∞":plan.empLimit} employees · {plan.price}
+                      Admin: <span style={{color:"var(--text)"}}>{co.adminName||adminEmp?.name||"—"}</span> · {co.empCount||co.emps.length}/{plan.empLimit===9999?"∞":plan.empLimit} employees · {plan.price} · <span style={{color:"var(--text3)"}}>{co.industry||""}</span>
                     </div>
                     {/* Employee usage bar */}
                     <div style={{ marginTop:6,height:4,background:"var(--s3)",borderRadius:4,width:"100%",maxWidth:200 }}>
@@ -2004,6 +2034,7 @@ export default function App() {
   const [clock,setClock]   = useState(new Date());
   const [allAtt,setAllAtt] = useState(SEED_ATT_ALL);
   const [allEmps,setAllEmps]=useState(()=>loadDemoState("allEmps",SEED_EMPLOYEES.map(eNorm)));
+  const [companies,setCompanies]=useState([]);
   const [useDemo,setUseDemo]=useState(false);
   const [tasks,setTasks]   = useState([
     { id:"t1",empId:"e4",title:"Migrate auth to JWT v2",  deadline:"2026-06-15",priority:"high",  progress:65,at:Date.now()-86400000 },
@@ -2059,15 +2090,17 @@ export default function App() {
       setLeaves((lData.requests||[]).map(lNorm));
       setLtypes(lt.leave_types||[]);
       setBals(bl.balances||[]);
-      if (isMgr) {
-        const [eData,anal]=await Promise.all([
-          api.get("/employees?limit=500&is_active=all").catch(()=>({employees:[]})),
+      if (isMgr || isSuperAdmin) {
+        const [eData,anal,coData]=await Promise.all([
+          api.get("/employees?limit=1000&is_active=all").catch(()=>({employees:[]})),
           api.get("/analytics/overview").catch(()=>null),
+          isSuperAdmin?api.get("/companies").catch(()=>({companies:[]})):Promise.resolve({companies:[]}),
         ]);
         const empList=(eData.employees||[]).map(eNorm);
         setEmps(empList);
         if(empList.length) setAllEmps(empList);
         setAn(anal);
+        if(isSuperAdmin&&coData.companies?.length) setCompanies(coData.companies);
       }
     } catch { /* API not running, demo data used */ }
   }
@@ -2354,7 +2387,7 @@ export default function App() {
         {nav==="Reports"      &&<ReportsPage   leaves={leaves} dash={dash} allEmps={allEmps} analytics={analytics} allAtt={allAtt}/>}
         {nav==="Onboarding"   &&<OnboardingPage/>}
         {nav==="Pricing"      &&<PricingPage/>}
-        {nav==="Platform Admin"&&<PlatformAdminPage user={user} allEmps={allEmps} setAllEmps={setAllEmps} updateEmp={updateEmp} useDemo={useDemo}/>}
+        {nav==="Platform Admin"&&<PlatformAdminPage user={user} allEmps={allEmps} setAllEmps={setAllEmps} updateEmp={updateEmp} useDemo={useDemo} companiesFromDB={companies}/>}
         {nav==="My Profile"   &&<ProfilePage   user={user} mySum={mySum} bals={bals} changePw={changePw} busy={busy}/>}
       </main>
     </div>
