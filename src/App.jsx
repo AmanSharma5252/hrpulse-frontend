@@ -10,6 +10,11 @@ const BASE = import.meta.env.VITE_API_URL || "http://localhost:4000/api/v1";
 let _at = localStorage.getItem("hp_at") || null;
 let _rt = localStorage.getItem("hp_rt") || null;
 
+// Demo state persistence helpers
+function saveDemoState(key, data) { try { localStorage.setItem("hp_demo_"+key, JSON.stringify(data)); } catch {} }
+function loadDemoState(key, fallback) { try { const v=localStorage.getItem("hp_demo_"+key); return v?JSON.parse(v):fallback; } catch { return fallback; } }
+function clearDemoState() { ["emps","leaves","tasks","anns","allEmps"].forEach(k=>localStorage.removeItem("hp_demo_"+k)); }
+
 function saveTokens(at, rt) {
   _at = at; if (rt) _rt = rt;
   localStorage.setItem("hp_at", at || ""); if (rt) localStorage.setItem("hp_rt", rt);
@@ -54,31 +59,6 @@ const api = {
   delete: p     => call(p, { method:"DELETE" }),
   postForm:(p,fd)=>call(p,{method:"POST",body:fd,headers:{}}),
 };
-
-// ─── PLAN FEATURE DEFINITIONS ────────────────────────────────────────────────
-const PLAN_FEATURES = {
-  starter:    ["GPS Attendance","Selfie Verify","Leave Management","Basic Reports","Email Support"],
-  growth:     ["GPS Attendance","Selfie Verify","Leave Management","Basic Reports","Email Support","AI Alerts","Payroll","War Room","Analytics","QR Attendance","Priority Support"],
-  enterprise: ["GPS Attendance","Selfie Verify","Leave Management","Basic Reports","Email Support","AI Alerts","Payroll","War Room","Analytics","QR Attendance","Priority Support","Custom Integrations","SLA Guarantee","Dedicated Account Manager","HRMS API Access","Biometric Integration"],
-};
-function hasFeature(plan, feature) {
-  // FIX: null plan = no plan loaded yet. Default to starter features only.
-  // Never grant full access on null plan (prevents hard-refresh unlock bug).
-  if (!plan) return PLAN_FEATURES["starter"].includes(feature);
-  if (plan.status === "suspended" || plan.status === "cancelled") return false;
-  const features = plan.features || PLAN_FEATURES[plan.name] || [];
-  return features.includes(feature);
-}
-function LockedFeature({ name, setNav }) {
-  return (
-    <div className="fu" style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,opacity:.85 }}>
-      <div style={{ fontSize:48 }}>🔒</div>
-      <div style={{ fontSize:20,fontWeight:800,color:"var(--text)" }}>{name} is locked</div>
-      <div style={{ fontSize:13,color:"var(--text3)",textAlign:"center",maxWidth:320 }}>This feature is not included in your current plan. Upgrade to unlock it.</div>
-      <button className="btn btn-p" onClick={()=>setNav&&setNav("Contact Us")}>🚀 Upgrade Plan</button>
-    </div>
-  );
-}
 
 // ─── SEED DATA (demo / offline fallback) ─────────────────────────────────────
 const SEED_EMPLOYEES = [
@@ -164,7 +144,7 @@ const fmtD  = iso => iso ? new Date(iso).toLocaleDateString("en-IN",{day:"numeri
 const fmtH  = m   => m ? `${Math.floor(m/60)}h ${m%60}m` : "—";
 const fmtAgo= ms  => { const s=Math.floor((Date.now()-ms)/1000); if(s<60)return"just now"; if(s<3600)return`${Math.floor(s/60)}m ago`; if(s<86400)return`${Math.floor(s/3600)}h ago`; return`${Math.floor(s/86400)}d ago`; };
 const rupee = n => `₹${Number(n).toLocaleString("en-IN")}`;
-const eNorm = e=>{ const nm=e.name||e.full_name||e.email||"?"; return { id:e.id, code:e.employee_code, name:nm, email:e.email, role:e.role, dept:e.department, title:e.title||"", phone:e.phone||"", emergency:e.emergency_contact||"", avatar:e.avatar_initials||(nm.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()||"?"), hireDate:e.hire_date||"", isActive:e.is_active }; };
+const eNorm = e=>({ id:e.id, code:e.employee_code, name:e.name, email:e.email, role:e.role, dept:e.department, title:e.title||"", phone:e.phone||"", emergency:e.emergency_contact||"", avatar:e.avatar_initials||e.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase(), hireDate:e.hire_date||"", isActive:e.is_active });
 const lNorm = l=>({ id:l.id, empId:l.employee_id, empName:l.employee?.name||"", deptName:l.employee?.department||"", avatar:l.employee?.avatar_initials||"?", type:l.leave_type?.name||"Leave", from:l.start_date, to:l.end_date, days:l.total_days, reason:l.reason||"", status:l.status, reviewer:l.reviewer?.name||"", reviewNote:l.review_note||"", at:new Date(l.created_at).getTime() });
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
@@ -810,439 +790,130 @@ function AIAlertsPage({ allEmps, allAtt, analytics }) {
 }
 
 // ─── PAYROLL PAGE ─────────────────────────────────────────────────────────────
-function PayrollPage({ useDemo, allEmps }) {
+function PayrollPage({ allEmps, allAtt }) {
   const now = new Date();
-  const [month,setMonth]     = useState(now.getMonth()+1);
-  const [year,setYear]       = useState(now.getFullYear());
-  const [sel,setSel]         = useState(null);
-  const [search,setSearch]   = useState("");
-  const [payroll,setPayroll] = useState([]);
-  const [totals,setTotals]   = useState({});
-  const [config,setConfig]   = useState({ pf_pct:12,tax_pct:10,esic_pct:0 });
-  const [loading,setLoading] = useState(true);
-  const [showSal,setShowSal] = useState(false);
-  const [showCfg,setShowCfg] = useState(false);
-  const [salForm,setSalForm] = useState({});
-  const [cfgForm,setCfgForm] = useState({});
-  const [busy,setBusy]       = useState(false);
-  // local salary overrides for demo mode
-  const [demoSalaries,setDemoSalaries] = useState({});
-  const [demoCfg,setDemoCfg]           = useState({ pf_pct:12, tax_pct:10, esic_pct:0 });
+  const [month,setMonth] = useState(now.getMonth()+1);
+  const [year,setYear]   = useState(now.getFullYear());
+  const [sel,setSel]     = useState(null);
+  const [search,setSearch]=useState("");
+
+  const emps = allEmps.filter(e=>e.isActive&&(search===""||e.name.toLowerCase().includes(search.toLowerCase())||e.dept.toLowerCase().includes(search.toLowerCase())));
+  const payrolls = emps.map(e=>({ emp:e, ...computePayroll(e,allAtt,month,year) }));
+  const totalNet   = payrolls.reduce((s,p)=>s+p.net,0);
+  const totalGross = payrolls.reduce((s,p)=>s+p.gross,0);
+  const selData    = sel ? payrolls.find(p=>p.emp.id===sel) : null;
 
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-  // Build demo payroll from seed employees
-  function buildDemoPayroll(emps, cfg, salOverrides) {
-    const workingDays = 22;
-    const rows = emps.filter(e=>e.isActive).map(e => {
-      const sal = salOverrides[e.id] || {};
-      const basic      = sal.basic_salary      || (e.id==="e1"?200000:e.id==="e3"?120000:e.id==="e2"?90000:70000);
-      const hra_pct    = sal.hra_pct           || 40;
-      const ta         = sal.ta_amount         || 1600;
-      const special    = sal.special_allowance || 0;
-      const bonus      = sal.bonus             || 0;
-      const hra        = Math.round(basic * hra_pct / 100);
-      const gross      = basic + hra + ta + special + bonus;
-      // fake attendance from seed: random present 14-21
-      const present    = sal.days_present ?? (14 + Math.abs(e.id.charCodeAt(1) % 8));
-      const absent     = workingDays - present;
-      const pf         = Math.round(basic * (cfg.pf_pct||12) / 100);
-      const tax        = Math.round(gross  * (cfg.tax_pct||10) / 100);
-      const esic       = Math.round(gross  * (cfg.esic_pct||0) / 100);
-      const absentDed  = absent > 0 ? Math.round((basic / workingDays) * absent) : 0;
-      const totalDed   = pf + tax + esic + absentDed;
-      const net        = gross - totalDed;
-      return {
-        employee_id: e.id, employee_code: e.code, name: e.name,
-        department: e.dept, title: e.title, avatar: e.avatar,
-        basic_salary: basic, hra_pct, hra, ta, special, bonus, gross,
-        pf_pct: cfg.pf_pct||12, tax_pct: cfg.tax_pct||10, esic_pct: cfg.esic_pct||0,
-        pf, tax, esic, absent_deduction: absentDed,
-        total_deductions: totalDed, net_pay: net,
-        days_present: present, days_absent: absent, working_days: workingDays, hours_worked: present * 8,
-        status: "draft", bank_account: sal.bank_account||"", bank_ifsc: sal.bank_ifsc||"", bank_name: sal.bank_name||"",
-      };
-    });
-    const gross_t = rows.reduce((s,r)=>s+r.gross,0);
-    const net_t   = rows.reduce((s,r)=>s+r.net_pay,0);
-    const ded_t   = rows.reduce((s,r)=>s+r.total_deductions,0);
-    return { rows, totals:{ gross:gross_t, net:net_t, deductions:ded_t, count:rows.length } };
-  }
-
-  async function load() {
-    setLoading(true);
-    if (useDemo) {
-      const { rows, totals:t } = buildDemoPayroll(allEmps||[], demoCfg, demoSalaries);
-      setPayroll(rows);
-      setTotals(t);
-      setConfig(demoCfg);
-      setCfgForm(demoCfg);
-      setLoading(false);
-      return;
-    }
-    try {
-      const d = await api.get(`/payroll/summary?month=${month}&year=${year}`);
-      setPayroll(d.payroll || []);
-      setTotals(d.totals || {});
-      setConfig(d.config || { pf_pct:12,tax_pct:10,esic_pct:0 });
-      setCfgForm(d.config || { pf_pct:12,tax_pct:10,esic_pct:0 });
-    } catch(e) { toast.error("Failed to load payroll"); }
-    setLoading(false);
-  }
-
-  useEffect(() => { load(); }, [month, year, useDemo]);
-
-  // Rebuild demo payroll whenever salary overrides or config change
-  useEffect(() => {
-    if (!useDemo) return;
-    const { rows, totals:t } = buildDemoPayroll(allEmps||[], demoCfg, demoSalaries);
-    setPayroll(rows);
-    setTotals(t);
-    setConfig(demoCfg);
-  }, [demoSalaries, demoCfg]);
-
-  const filtered = payroll.filter(p =>
-    search === "" ||
-    p.name?.toLowerCase().includes(search.toLowerCase()) ||
-    p.department?.toLowerCase().includes(search.toLowerCase())
-  );
-  const selData = sel ? filtered.find(p => p.employee_id === sel) : null;
-
-  async function markPaid(p) {
-    setBusy(true);
-    try {
-      if (!useDemo) {
-        await api.post("/payroll/mark-paid", {
-          employee_id: p.employee_id, month, year,
-          gross: p.gross, total_deductions: p.total_deductions,
-          net_pay: p.net_pay, days_present: p.days_present,
-          days_absent: p.days_absent, basic_salary: p.basic_salary,
-        });
-      }
-      setPayroll(prev => prev.map(x => x.employee_id === p.employee_id ? { ...x, status:"paid" } : x));
-      toast.success(`${p.name} marked as paid!`);
-    } catch(e) { toast.error("Failed to mark paid"); }
-    setBusy(false);
-  }
-
-  async function markAllPaid() {
-    setBusy(true);
-    try {
-      if (!useDemo) await api.post("/payroll/mark-all-paid", { month, year, employees: filtered });
-      setPayroll(prev => prev.map(x => ({ ...x, status:"paid" })));
-      toast.success(`All ${filtered.length} employees marked as paid!`);
-    } catch(e) { toast.error("Failed"); }
-    setBusy(false);
-  }
-
-  async function sendPayslip(p) {
-    try {
-      if (useDemo) { toast.success("Payslip sent! (demo)"); return; }
-      const r = await api.post("/payroll/send-payslip", { employee_id: p.employee_id, month, year });
-      toast.success(r.message || "Payslip sent!");
-    } catch(e) { toast.error("Failed to send payslip"); }
-  }
-
-  async function saveSalary() {
-    if (!sel) return;
-    setBusy(true);
-    try {
-      if (useDemo) {
-        // persist salary override locally so demo payroll recalculates
-        setDemoSalaries(prev => ({ ...prev, [sel]: { ...prev[sel], ...salForm } }));
-        toast.success("Salary saved! (demo)");
-        setShowSal(false);
-        setBusy(false);
-        return;
-      }
-      await api.patch(`/payroll/employees/${sel}/salary`, salForm);
-      toast.success("Salary saved!");
-      setShowSal(false);
-      load();
-    } catch(e) { toast.error("Failed to save salary"); }
-    setBusy(false);
-  }
-
-  async function saveConfig() {
-    setBusy(true);
-    try {
-      if (useDemo) {
-        setDemoCfg(cfgForm);
-        toast.success("Config saved! (demo)");
-        setShowCfg(false);
-        setBusy(false);
-        return;
-      }
-      await api.patch("/payroll/config", cfgForm);
-      toast.success("Payroll config saved!");
-      setShowCfg(false);
-      load();
-    } catch(e) { toast.error("Failed to save config"); }
-    setBusy(false);
-  }
-
-  function openSalary(p) {
-    setSel(p.employee_id);
-    setSalForm({
-      basic_salary:      p.basic_salary || 0,
-      hra_pct:           p.hra_pct || 40,
-      ta_amount:         p.ta || 1600,
-      special_allowance: p.special || 0,
-      bonus:             p.bonus || 0,
-      bank_account:      p.bank_account || "",
-      bank_ifsc:         p.bank_ifsc || "",
-      bank_name:         p.bank_name || "",
-    });
-    setShowSal(true);
-  }
-
-  if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:400}}><Spin lg/></div>;
-
   return (
     <div className="fu">
-      {/* KPIs */}
-      <div className="g4" style={{marginBottom:20}}>
-        <KPI label="Total Gross"      val={`₹${((totals.gross||0)/100000).toFixed(1)}L`}  pct={100} color="var(--g)"  icon="💰"/>
-        <KPI label="Net Payable"      val={`₹${((totals.net||0)/100000).toFixed(1)}L`}    pct={totals.gross?Math.round((totals.net||0)/(totals.gross||1)*100):0} color="#3B82F6" icon="✓"/>
-        <KPI label="Total Deductions" val={`₹${Math.round((totals.deductions||0)/1000)}K`} pct={totals.gross?Math.round((totals.deductions||0)/(totals.gross||1)*100):0} color="#EF4444" icon="↓"/>
-        <KPI label="Employees"        val={totals.count||0} pct={100} color="#8B5CF6" icon="👥"/>
+      {/* Summary KPIs */}
+      <div className="g4" style={{ marginBottom:20 }}>
+        <KPI label="Total Gross" val={`₹${Math.round(totalGross/100000).toFixed(1)}L`} pct={100} color="var(--g)" icon="💰"/>
+        <KPI label="Net Payable" val={`₹${Math.round(totalNet/100000).toFixed(1)}L`} pct={Math.round(totalNet/totalGross*100)} color="#3B82F6" icon="✓"/>
+        <KPI label="Total Deductions" val={`₹${Math.round((totalGross-totalNet)/1000)}K`} pct={Math.round((totalGross-totalNet)/totalGross*100)} color="#EF4444" icon="↓"/>
+        <KPI label="Employees" val={payrolls.length} pct={100} color="#8B5CF6" icon="👥"/>
       </div>
 
       {/* Controls */}
-      <div style={{display:"flex",gap:10,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
-        <input placeholder="Search employee..." value={search} onChange={e=>setSearch(e.target.value)} style={{width:200}}/>
-        <select value={month} onChange={e=>setMonth(+e.target.value)} style={{width:120}}>
+      <div style={{ display:"flex",gap:10,marginBottom:16,alignItems:"center",flexWrap:"wrap" }}>
+        <input placeholder="Search employee..." value={search} onChange={e=>setSearch(e.target.value)} style={{ width:220 }}/>
+        <select value={month} onChange={e=>setMonth(+e.target.value)} style={{ width:130 }}>
           {monthNames.map((m,i)=><option key={i} value={i+1}>{m}</option>)}
         </select>
-        <select value={year} onChange={e=>setYear(+e.target.value)} style={{width:90}}>
+        <select value={year} onChange={e=>setYear(+e.target.value)} style={{ width:100 }}>
           {[2024,2025,2026].map(y=><option key={y}>{y}</option>)}
         </select>
-        <button className="btn" style={{marginLeft:"auto",background:"var(--s2)",color:"var(--text)"}} onClick={()=>setShowCfg(true)}>⚙️ Config</button>
-        <button className="btn btn-p" onClick={()=>toast.success("Exported!")}>⬇ Export CSV</button>
-        <button className="btn btn-g" onClick={markAllPaid} disabled={busy}>✅ Mark All Paid</button>
+        <button className="btn btn-p" style={{ marginLeft:"auto" }} onClick={()=>toast.success("Payroll report exported!")}>⬇ Export CSV</button>
+        <button className="btn btn-g" onClick={()=>toast.success("Payslips sent to all employees!")}>📧 Send Payslips</button>
       </div>
 
       <div className="g2">
-        {/* Employee list */}
-        <div className="card" style={{padding:0,overflow:"hidden"}}>
-          <div style={{padding:"16px 20px",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div style={{fontWeight:700,fontSize:14}}>Payroll · {monthNames[month-1]} {year}</div>
-            <div style={{fontSize:11,color:"var(--text3)"}}>{filtered.length} employees</div>
+        {/* Table */}
+        <div className="card" style={{ padding:0, overflow:"hidden" }}>
+          <div style={{ padding:"16px 20px", borderBottom:"1px solid var(--border)" }}>
+            <div style={{ fontWeight:700,fontSize:14 }}>Payroll · {monthNames[month-1]} {year}</div>
           </div>
-          {filtered.length === 0 ? (
-            <div style={{padding:40,textAlign:"center",color:"var(--text3)"}}>
-              <div style={{fontSize:32,marginBottom:8}}>👥</div>
-              <div style={{fontSize:14,fontWeight:600}}>No employees found</div>
-              <div style={{fontSize:12,marginTop:4}}>Add employees first from the Employees section</div>
-            </div>
-          ) : (
-            <div style={{maxHeight:520,overflowY:"auto"}}>
-              {filtered.map(p=>(
-                <div key={p.employee_id} className="row"
-                  style={{padding:"12px 20px",cursor:"pointer",
-                    background:sel===p.employee_id?"var(--gd)":"",
-                    borderLeft:sel===p.employee_id?"3px solid var(--g)":"3px solid transparent"}}
-                  onClick={()=>setSel(sel===p.employee_id?null:p.employee_id)}>
-                  <div style={{width:34,height:34,borderRadius:9,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"var(--g)",flexShrink:0}}>{p.avatar||"?"}</div>
-                  <div style={{flex:1,minWidth:0,marginLeft:10}}>
-                    <div style={{fontSize:13,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
-                    <div style={{fontSize:10,color:"var(--text3)"}}>{p.department||"—"} · P:{p.days_present} A:{p.days_absent}</div>
-                  </div>
-                  <div style={{textAlign:"right",flexShrink:0,marginRight:8}}>
-                    {p.basic_salary > 0 ? (
-                      <>
-                        <div style={{fontSize:13,fontWeight:700,color:"var(--g)"}}>₹{Math.round(p.net_pay).toLocaleString("en-IN")}</div>
-                        <div style={{fontSize:10,color:"#EF4444"}}>-₹{Math.round(p.total_deductions).toLocaleString("en-IN")}</div>
-                      </>
-                    ) : (
-                      <span style={{fontSize:10,color:"#F59E0B",fontWeight:700}}>⚠️ No salary</span>
-                    )}
-                  </div>
-                  {p.basic_salary === 0 ? (
-                    <button className="btn btn-g" style={{fontSize:10,padding:"4px 8px",flexShrink:0}}
-                      onClick={e=>{e.stopPropagation();openSalary(p);}}>+ Set</button>
-                  ) : (
-                    <span style={{fontSize:10,padding:"3px 8px",borderRadius:6,fontWeight:700,flexShrink:0,
-                      background:p.status==="paid"?"#3ECF8E20":"#F59E0B20",
-                      color:p.status==="paid"?"#3ECF8E":"#F59E0B"}}>
-                      {p.status==="paid"?"PAID":"DRAFT"}
-                    </span>
-                  )}
+          <div style={{ maxHeight:520, overflowY:"auto" }}>
+            {payrolls.map(({ emp, net, gross, deductions, present, absent, late })=>(
+              <div key={emp.id} className="row" style={{ padding:"12px 20px", cursor:"pointer", background:sel===emp.id?"var(--gd)":"", borderLeft:sel===emp.id?"3px solid var(--g)":"3px solid transparent" }} onClick={()=>setSel(sel===emp.id?null:emp.id)}>
+                <Av emp={emp} size={36}/>
+                <div style={{ flex:1,minWidth:0 }}>
+                  <div style={{ fontSize:13,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{emp.name}</div>
+                  <div style={{ fontSize:10,color:"var(--text3)" }}>{emp.dept} · P:{present} L:{late} A:{absent}</div>
                 </div>
-              ))}
-            </div>
-          )}
-          <div style={{padding:"12px 20px",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-between",background:"var(--s2)"}}>
-            <span style={{fontSize:12,color:"var(--text2)",fontWeight:600}}>Total Net Payroll</span>
-            <span style={{fontSize:15,fontWeight:900,color:"var(--g)"}}>₹{Math.round(totals.net||0).toLocaleString("en-IN")}</span>
+                <div style={{ textAlign:"right",flexShrink:0 }}>
+                  <div style={{ fontSize:13,fontWeight:700,color:"var(--g)" }}>{rupee(net)}</div>
+                  <div style={{ fontSize:10,color:"#EF4444" }}>-{rupee(deductions)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ padding:"12px 20px",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-between",background:"var(--s2)" }}>
+            <span style={{ fontSize:12,color:"var(--text2)",fontWeight:600 }}>Total Net Payroll</span>
+            <span style={{ fontSize:15,fontWeight:900,color:"var(--g)" }}>{rupee(totalNet)}</span>
           </div>
         </div>
 
         {/* Payslip detail */}
         {selData ? (
           <div className="payroll-card">
-            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
-              <div style={{width:44,height:44,borderRadius:12,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:"var(--g)"}}>{selData.avatar||"?"}</div>
-              <div style={{flex:1}}>
-                <div style={{fontWeight:800,fontSize:16,color:"#fff"}}>{selData.name}</div>
-                <div style={{fontSize:12,color:"var(--text3)"}}>{selData.title||selData.role} · {selData.department}</div>
-                <div style={{fontSize:11,color:"var(--text3)",fontFamily:"var(--mono)"}}>{selData.employee_code}</div>
+            <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:20 }}>
+              <Av emp={selData.emp} size={46}/>
+              <div>
+                <div style={{ fontWeight:800,fontSize:16,color:"#fff" }}>{selData.emp.name}</div>
+                <div style={{ fontSize:12,color:"var(--text3)" }}>{selData.emp.title||selData.emp.role} · {selData.emp.dept}</div>
+                <div style={{ fontSize:11,color:"var(--text3)",fontFamily:"var(--mono)" }}>{selData.emp.code}</div>
               </div>
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                <button className="btn btn-g" style={{fontSize:11}} onClick={()=>openSalary(selData)}>✏️ Edit Salary</button>
-                <button className="btn" style={{fontSize:11,background:"var(--s2)",color:"var(--text)"}} onClick={()=>sendPayslip(selData)}>📧 Send</button>
-              </div>
+              <button className="btn btn-g" style={{ marginLeft:"auto",fontSize:11 }} onClick={()=>toast.success(`Payslip sent to ${selData.emp.email}!`)}>📧 Send</button>
             </div>
 
-            {selData.bank_account && (
-              <div style={{background:"rgba(62,207,142,0.06)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12}}>
-                <div style={{color:"var(--text3)",fontSize:10,marginBottom:4}}>BANK DETAILS</div>
-                <div style={{color:"var(--text)"}}>{selData.bank_name||"Bank"} · ****{selData.bank_account?.slice(-4)}</div>
-                <div style={{color:"var(--text3)",fontSize:11}}>{selData.bank_ifsc}</div>
-              </div>
-            )}
-
-            {selData.basic_salary === 0 && (
-              <div style={{background:"rgba(245,158,11,0.1)",border:"1px solid rgba(245,158,11,0.3)",borderRadius:10,padding:"12px 14px",marginBottom:14,textAlign:"center"}}>
-                <div style={{color:"#F59E0B",fontWeight:700,fontSize:13,marginBottom:4}}>⚠️ No salary configured</div>
-                <div style={{color:"var(--text3)",fontSize:11,marginBottom:10}}>Set this employee's basic salary to generate their payslip.</div>
-                <button className="btn btn-g" style={{fontSize:12}} onClick={()=>openSalary(selData)}>✏️ Set Salary Now</button>
-              </div>
-            )}
-
-            <div style={{fontSize:10,color:"var(--text3)",letterSpacing:1,marginBottom:10}}>PAY PERIOD · {monthNames[month-1].toUpperCase()} {year}</div>
-            <div style={{display:"flex",gap:8,marginBottom:16}}>
-              {[["Working",selData.working_days],["Present",selData.days_present],["Absent",selData.days_absent],["Hours",selData.hours_worked+"h"]].map(([l,v])=>(
-                <div key={l} style={{flex:1,textAlign:"center",background:"rgba(0,0,0,0.2)",borderRadius:8,padding:"8px 4px"}}>
-                  <div style={{fontSize:16,fontWeight:800,color:"var(--g)"}}>{v}</div>
-                  <div style={{fontSize:9,color:"var(--text3)"}}>{l}</div>
+            <div style={{ fontSize:10,color:"var(--text3)",letterSpacing:1,marginBottom:10 }}>PAY PERIOD · {monthNames[month-1].toUpperCase()} {year}</div>
+            <div style={{ display:"flex",gap:10,marginBottom:16 }}>
+              {[["Working Days",selData.workingDays],["Present",selData.present],["Late",selData.late],["Absent",selData.absent]].map(([l,v])=>(
+                <div key={l} style={{ flex:1,textAlign:"center",background:"rgba(0,0,0,0.2)",borderRadius:8,padding:"8px 4px" }}>
+                  <div style={{ fontSize:16,fontWeight:800,color:"var(--g)" }}>{v}</div>
+                  <div style={{ fontSize:9,color:"var(--text3)" }}>{l}</div>
                 </div>
               ))}
             </div>
 
-            <div style={{fontSize:11,color:"var(--text3)",marginBottom:8,letterSpacing:.5}}>EARNINGS</div>
-            {[
-              ["Basic Salary", selData.basic_salary],
-              [`HRA (${selData.hra_pct}%)`, selData.hra],
-              ["Travel Allowance", selData.ta],
-              selData.special > 0 && ["Special Allowance", selData.special],
-              selData.bonus > 0   && ["Bonus", selData.bonus],
-            ].filter(Boolean).map(([l,v])=>(
-              <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",fontSize:13}}>
-                <span style={{color:"var(--text2)"}}>{l}</span>
-                <span style={{color:"var(--g)",fontWeight:600,fontFamily:"var(--mono)"}}>₹{Math.round(v).toLocaleString("en-IN")}</span>
+            <div style={{ fontSize:11,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>EARNINGS</div>
+            {[["Basic Salary",selData.baseSalary],["HRA (40%)",selData.hra],["Travel Allowance",selData.ta]].map(([l,v])=>(
+              <div key={l} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",fontSize:13 }}>
+                <span style={{ color:"var(--text2)" }}>{l}</span>
+                <span style={{ color:"var(--g)",fontWeight:600,fontFamily:"var(--mono)" }}>{rupee(v)}</span>
               </div>
             ))}
-            <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",fontWeight:700}}>
-              <span style={{color:"var(--text)"}}>Gross Salary</span>
-              <span style={{color:"var(--g)",fontFamily:"var(--mono)"}}>₹{Math.round(selData.gross).toLocaleString("en-IN")}</span>
+            <div style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",fontWeight:700 }}>
+              <span style={{ color:"var(--text)" }}>Gross Salary</span>
+              <span style={{ color:"var(--g)",fontFamily:"var(--mono)" }}>{rupee(selData.gross)}</span>
             </div>
 
-            <div style={{height:1,background:"rgba(255,255,255,0.07)",margin:"10px 0"}}/>
-            <div style={{fontSize:11,color:"var(--text3)",marginBottom:8,letterSpacing:.5}}>DEDUCTIONS</div>
-            {[
-              [`PF (${selData.pf_pct}%)`, selData.pf],
-              [`Income Tax (${selData.tax_pct}%)`, selData.tax],
-              selData.esic > 0 && [`ESIC (${selData.esic_pct}%)`, selData.esic],
-              selData.absent_deduction > 0 && ["Absent Deduction", selData.absent_deduction],
-            ].filter(Boolean).map(([l,v])=>(
-              <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",fontSize:13}}>
-                <span style={{color:"var(--text2)"}}>{l}</span>
-                <span style={{color:"#EF4444",fontFamily:"var(--mono)"}}>-₹{Math.round(v).toLocaleString("en-IN")}</span>
+            <Divider/>
+            <div style={{ fontSize:11,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>DEDUCTIONS</div>
+            {[["Provident Fund (12%)",selData.pf],["Income Tax (10%)",selData.tax],["Absent Deduction",selData.absentDeduction],["Late Deduction",selData.lateDeduction]].filter(([,v])=>v>0).map(([l,v])=>(
+              <div key={l} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",fontSize:13 }}>
+                <span style={{ color:"var(--text2)" }}>{l}</span>
+                <span style={{ color:"#EF4444",fontFamily:"var(--mono)" }}>-{rupee(v)}</span>
               </div>
             ))}
 
-            <div style={{height:1,background:"rgba(255,255,255,0.07)",margin:"10px 0"}}/>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0"}}>
-              <span style={{fontWeight:800,fontSize:15,color:"var(--text)"}}>NET PAY</span>
-              <span style={{fontWeight:900,fontSize:22,color:"var(--g)",letterSpacing:-1,fontFamily:"var(--mono)"}}>₹{Math.round(selData.net_pay).toLocaleString("en-IN")}</span>
+            <Divider/>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0" }}>
+              <span style={{ fontWeight:800,fontSize:15,color:"var(--text)" }}>NET PAY</span>
+              <span style={{ fontWeight:900,fontSize:22,color:"var(--g)",letterSpacing:-1,fontFamily:"var(--mono)" }}>{rupee(selData.net)}</span>
             </div>
-
-            {selData.status !== "paid" ? (
-              <button className="btn btn-g" style={{width:"100%",marginTop:10,padding:"12px"}} onClick={()=>markPaid(selData)} disabled={busy}>
-                ✅ Mark as Paid
-              </button>
-            ) : (
-              <div style={{textAlign:"center",marginTop:10,padding:"12px",background:"#3ECF8E15",borderRadius:10,color:"#3ECF8E",fontWeight:700,fontSize:13}}>
-                ✅ PAID
-              </div>
-            )}
+            <div style={{ fontSize:10,color:"var(--text3)",marginTop:4 }}>{selData.totalHours} hours worked this month</div>
           </div>
         ) : (
-          <div className="card" style={{display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10,color:"var(--text3)",minHeight:300}}>
-            <div style={{fontSize:32}}>💳</div>
-            <div style={{fontSize:13,fontWeight:600}}>Select an employee</div>
-            <div style={{fontSize:11}}>to view detailed payslip</div>
+          <div className="card" style={{ display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10,color:"var(--text3)",minHeight:300 }}>
+            <div style={{ fontSize:32 }}>💳</div>
+            <div style={{ fontSize:13,fontWeight:600 }}>Select an employee</div>
+            <div style={{ fontSize:11 }}>to view detailed payslip</div>
           </div>
         )}
       </div>
-
-      {/* Edit Salary Modal */}
-      {showSal && selData && (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"var(--bg2)",borderRadius:20,padding:28,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",border:"1px solid var(--border)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-              <div style={{fontSize:16,fontWeight:800,color:"var(--text)"}}>✏️ Edit Salary — {selData.name}</div>
-              <button onClick={()=>setShowSal(false)} style={{background:"none",border:"none",color:"var(--text3)",cursor:"pointer",fontSize:18}}>✕</button>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-              {[
-                ["Basic Salary (₹)","basic_salary","number"],
-                ["HRA %","hra_pct","number"],
-                ["Travel Allowance (₹)","ta_amount","number"],
-                ["Special Allowance (₹)","special_allowance","number"],
-                ["Bonus (₹)","bonus","number"],
-              ].map(([label,key,type])=>(
-                <div key={key}>
-                  <div style={{fontSize:11,color:"var(--text3)",marginBottom:5}}>{label}</div>
-                  <input type={type} value={salForm[key]||""} onChange={e=>setSalForm(p=>({...p,[key]:e.target.value}))} style={{width:"100%"}}/>
-                </div>
-              ))}
-            </div>
-            <div style={{marginTop:16,paddingTop:16,borderTop:"1px solid var(--border)"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"var(--text)",marginBottom:12}}>🏦 Bank Details</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-                {[
-                  ["Account Number","bank_account"],
-                  ["IFSC Code","bank_ifsc"],
-                  ["Bank Name","bank_name"],
-                ].map(([label,key])=>(
-                  <div key={key}>
-                    <div style={{fontSize:11,color:"var(--text3)",marginBottom:5}}>{label}</div>
-                    <input value={salForm[key]||""} onChange={e=>setSalForm(p=>({...p,[key]:e.target.value}))} style={{width:"100%"}}/>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div style={{display:"flex",gap:10,marginTop:20}}>
-              <button className="btn" style={{flex:1,background:"var(--s2)",color:"var(--text)"}} onClick={()=>setShowSal(false)}>Cancel</button>
-              <button className="btn btn-g" style={{flex:1}} onClick={saveSalary} disabled={busy}>{busy?"Saving...":"Save Salary"}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Config Modal */}
-      {showCfg && (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"var(--bg2)",borderRadius:20,padding:28,width:"100%",maxWidth:380,border:"1px solid var(--border)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-              <div style={{fontSize:16,fontWeight:800,color:"var(--text)"}}>⚙️ Payroll Config</div>
-              <button onClick={()=>setShowCfg(false)} style={{background:"none",border:"none",color:"var(--text3)",cursor:"pointer",fontSize:18}}>✕</button>
-            </div>
-            {[["PF %","pf_pct"],["Income Tax %","tax_pct"],["ESIC %","esic_pct"]].map(([label,key])=>(
-              <div key={key} style={{marginBottom:14}}>
-                <div style={{fontSize:11,color:"var(--text3)",marginBottom:5}}>{label}</div>
-                <input type="number" value={cfgForm[key]||0} onChange={e=>setCfgForm(p=>({...p,[key]:e.target.value}))} style={{width:"100%"}}/>
-              </div>
-            ))}
-            <div style={{display:"flex",gap:10,marginTop:20}}>
-              <button className="btn" style={{flex:1,background:"var(--s2)",color:"var(--text)"}} onClick={()=>setShowCfg(false)}>Cancel</button>
-              <button className="btn btn-g" style={{flex:1}} onClick={saveConfig} disabled={busy}>{busy?"Saving...":"Save Config"}</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1342,25 +1013,18 @@ function OnboardingPage({ onComplete }) {
   const [launchErr,setLaunchErr]=useState("");
   const s=(k,v)=>setF(p=>({...p,[k]:v}));
   const launch=async()=>{
-    if(!f.adminPassword||f.adminPassword.length<8){
-      setLaunchErr("Admin password must be at least 8 characters."); return;
-    }
     setLaunching(true); setLaunchErr("");
     try {
-      const d=await api.post("/auth/onboard",{
-        company: f.company, industry: f.industry, size: f.size,
-        timezone: f.timezone, officeAddr: f.officeAddr,
-        lat: f.lat||null, lng: f.lng||null, radius: f.radius||100,
-        adminName: f.adminName, adminEmail: f.adminEmail, adminPassword: f.adminPassword,
-      });
-      toast.success(f.company+" is now live on HRPulse! Ask your admin to log in.");
-      onComplete&&onComplete({...f, company_id: d.company?.id});
+      await api.post("/auth/register",{ email:f.adminEmail, password:f.adminPassword||"TempPass@123", full_name:f.adminName, role:"admin" });
+      toast.success(f.company+" is now live on HRPulse!");
+      onComplete&&onComplete(f);
     } catch(e) {
       const msg=e.message||"";
       if(msg.toLowerCase().includes("already")||msg.toLowerCase().includes("exists")){
-        setLaunchErr("An account with that email already exists. Please use a different admin email.");
+        toast.success("Welcome back! Workspace is ready."); onComplete&&onComplete(f);
       } else {
-        setLaunchErr(msg||"Could not connect to server. Please try again.");
+        setLaunchErr(msg||"Could not reach server. Workspace configured locally.");
+        toast.success(f.company+" workspace configured!"); onComplete&&onComplete(f);
       }
     }
     setLaunching(false);
@@ -1473,273 +1137,6 @@ function OnboardingPage({ onComplete }) {
 }
 
 // ─── PRICING PAGE ─────────────────────────────────────────────────────────────
-// ─── SUPER ADMIN PAGE ────────────────────────────────────────────────────────
-function SuperAdminPage({ currentUser }) {
-  const [companies, setCompanies] = useState([]);
-  const [plans, setPlans]         = useState([]);
-  const [busy, setBusy]           = useState(true);
-  const [selected, setSelected]   = useState(null); // company being edited
-  const [form, setForm]           = useState({ plan_id:"", status:"active", notes:"", billing_end:"" });
-
-  useEffect(() => {
-    Promise.all([
-      api.get("/super/companies"),
-      api.get("/super/plans"),
-    ]).then(([c, p]) => {
-      setCompanies(c.companies || []);
-      setPlans(p.plans || []);
-    }).catch(e => toast.error(e.message)).finally(() => setBusy(false));
-  }, []);
-
-  const openEdit = (co) => {
-    const sub = co.company_subscriptions?.[0];
-    setForm({
-      plan_id: sub?.plans?.id || plans[0]?.id || "",
-      status: sub?.status || "trial",
-      notes: sub?.notes || "",
-      billing_end: sub?.billing_end ? (sub.billing_end||"").split("T")[0] : "",
-    });
-    setSelected(co);
-  };
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      await api.patch(`/super/companies/${selected.id}/plan`, form);
-      toast.success("Plan updated!");
-      // Refresh companies list
-      const c = await api.get("/super/companies");
-      setCompanies(c.companies || []);
-      // Notify App so userPlan state + localStorage are updated immediately
-      // This ensures the change persists for the affected company on refresh
-      const updatedCo = (c.companies || []).find(co => co.id === selected.id);
-      if (updatedCo) {
-        const newSub = updatedCo.company_subscriptions?.[0];
-        const newPlan = newSub ? { name: newSub.plans?.name, status: newSub.status, features: newSub.plans?.features } : null;
-        window.dispatchEvent(new CustomEvent("hrpulse-plan-update", { detail: { companyId: selected.id, plan: newPlan } }));
-      }
-      setSelected(null);
-    } catch(e) { toast.error(e.message); }
-    setBusy(false);
-  };
-
-  const toggleStatus = async (co, newStatus) => {
-    try {
-      await api.patch(`/super/companies/${co.id}/status`, { status: newStatus });
-      toast.success(`Company ${newStatus}`);
-      const c = await api.get("/super/companies");
-      setCompanies(c.companies || []);
-    } catch(e) { toast.error(e.message); }
-  };
-
-  const STATUS_COLOR = { trial:"#F59E0B", active:"var(--g)", suspended:"#EF4444", cancelled:"var(--text3)" };
-  const PLAN_COLOR   = { starter:"var(--text2)", growth:"var(--g)", enterprise:"#F59E0B" };
-
-  if (busy) return <div className="fu" style={{textAlign:"center",paddingTop:60}}><Spin/></div>;
-
-  return (
-    <div className="fu">
-      <div style={{ marginBottom:24 }}>
-        <div style={{ fontSize:22,fontWeight:900,color:"var(--text)",marginBottom:4 }}>🛡️ Super Admin Panel</div>
-        <div style={{ fontSize:13,color:"var(--text3)" }}>{companies.length} companies on HRPulse</div>
-      </div>
-
-      {/* Stats row */}
-      <div className="g4" style={{ marginBottom:24 }}>
-        {["trial","active","suspended","cancelled"].map(s => (
-          <div key={s} className="card" style={{ textAlign:"center" }}>
-            <div style={{ fontSize:28,fontWeight:900,color:STATUS_COLOR[s] }}>
-              {companies.filter(c => (c.company_subscriptions?.[0]?.status||"trial") === s).length}
-            </div>
-            <div style={{ fontSize:11,color:"var(--text3)",textTransform:"capitalize",marginTop:4 }}>{s}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Companies table */}
-      <div className="card" style={{ padding:0,overflow:"hidden" }}>
-        <div style={{ padding:"16px 20px",borderBottom:"1px solid var(--border)",fontSize:13,fontWeight:700,color:"var(--text)" }}>
-          All Companies
-        </div>
-        <div style={{ overflowX:"auto" }}>
-          <table style={{ width:"100%",borderCollapse:"collapse",fontSize:13 }}>
-            <thead>
-              <tr style={{ background:"var(--s2)" }}>
-                {["Company","Industry","Employees","Plan","Status","Trial Ends","Actions"].map(h => (
-                  <th key={h} style={{ padding:"10px 16px",textAlign:"left",color:"var(--text3)",fontWeight:600,fontSize:11,borderBottom:"1px solid var(--border)" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {companies.map((co, i) => {
-                const sub  = co.company_subscriptions?.[0];
-                const plan = sub?.plans;
-                const status = sub?.status || "trial";
-                return (
-                  <tr key={co.id} style={{ borderBottom:"1px solid var(--border)",background: i%2===0?"transparent":"var(--s2)11" }}>
-                    <td style={{ padding:"12px 16px",fontWeight:600,color:"var(--text)" }}>
-                      <div>{co.name}</div>
-                      <div style={{ fontSize:11,color:"var(--text3)" }}>{co.id.slice(0,8)}…</div>
-                    </td>
-                    <td style={{ padding:"12px 16px",color:"var(--text2)" }}>{co.industry||"—"}</td>
-                    <td style={{ padding:"12px 16px",color:"var(--text2)",textAlign:"center" }}>{co.employee_count||0}</td>
-                    <td style={{ padding:"12px 16px" }}>
-                      <span style={{ fontWeight:700,color:PLAN_COLOR[plan?.name]||"var(--text3)" }}>
-                        {plan?.display_name||"No Plan"}
-                      </span>
-                    </td>
-                    <td style={{ padding:"12px 16px" }}>
-                      <span style={{ padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,
-                        background:STATUS_COLOR[status]+"22",color:STATUS_COLOR[status] }}>
-                        {status}
-                      </span>
-                    </td>
-                    <td style={{ padding:"12px 16px",color:"var(--text3)",fontSize:12 }}>
-                      {sub?.trial_ends ? (() => { try { return new Date(sub.trial_ends).toLocaleDateString("en-IN"); } catch(e) { return "—"; } })() : "—"}
-                    </td>
-                    <td style={{ padding:"12px 16px" }}>
-                      <div style={{ display:"flex",gap:8 }}>
-                        <button className="btn btn-g" style={{ padding:"5px 12px",fontSize:11 }} onClick={()=>openEdit(co)}>
-                          ✏️ Plan
-                        </button>
-                        {status !== "suspended" ? (
-                          <button className="btn" style={{ padding:"5px 12px",fontSize:11,background:"#EF444422",color:"#EF4444",border:"1px solid #EF444433" }}
-                            onClick={()=>toggleStatus(co,"suspended")}>
-                            🚫 Suspend
-                          </button>
-                        ) : (
-                          <button className="btn btn-p" style={{ padding:"5px 12px",fontSize:11 }}
-                            onClick={()=>toggleStatus(co,"active")}>
-                            ✅ Activate
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {!companies.length && (
-                <tr><td colSpan={7} style={{ padding:40,textAlign:"center",color:"var(--text3)" }}>No companies yet.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Edit plan modal */}
-      {selected && (
-        <div className="modal-bg" onClick={()=>setSelected(null)}>
-          <div className="modal" style={{ maxWidth:420 }} onClick={e=>e.stopPropagation()}>
-            <div style={{ fontSize:16,fontWeight:800,color:"var(--text)",marginBottom:4 }}>Change Plan</div>
-            <div style={{ fontSize:12,color:"var(--text3)",marginBottom:20 }}>{selected.name}</div>
-
-            <F label="Plan">
-              <select value={form.plan_id} onChange={e=>setForm(p=>({...p,plan_id:e.target.value}))}>
-                <option value="">Select plan…</option>
-                {plans.map(p => <option key={p.id} value={p.id}>{p.display_name} {p.price_monthly?`— ₹${p.price_monthly}/mo`:"— Custom"}</option>)}
-              </select>
-            </F>
-
-            <F label="Status">
-              <select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))}>
-                <option value="trial">Trial</option>
-                <option value="active">Active</option>
-                <option value="suspended">Suspended</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </F>
-
-            <F label="Billing End Date">
-              <input type="date" value={form.billing_end} onChange={e=>setForm(p=>({...p,billing_end:e.target.value}))}/>
-            </F>
-
-            <F label="Notes">
-              <input value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} placeholder="Internal notes…"/>
-            </F>
-
-            {/* Show features of selected plan */}
-            {form.plan_id && (() => {
-              const pl = plans.find(p=>p.id===form.plan_id);
-              return pl ? (
-                <div style={{ background:"var(--s2)",borderRadius:10,padding:12,marginBottom:16 }}>
-                  <div style={{ fontSize:11,fontWeight:700,color:"var(--text3)",marginBottom:8 }}>INCLUDED FEATURES</div>
-                  <div style={{ display:"flex",flexWrap:"wrap",gap:6 }}>
-                    {(pl.features||[]).map(f => (
-                      <span key={f} style={{ fontSize:11,padding:"3px 8px",background:"var(--g)22",color:"var(--g)",borderRadius:6 }}>✓ {f}</span>
-                    ))}
-                  </div>
-                </div>
-              ) : null;
-            })()}
-
-            <div style={{ display:"flex",gap:10,marginTop:8 }}>
-              <button className="btn btn-p" style={{ flex:1 }} onClick={save} disabled={!form.plan_id||busy}>
-                {busy?<Spin/>:"Save Changes"}
-              </button>
-              <button className="btn btn-g" onClick={()=>setSelected(null)}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── CONTACT PAGE ────────────────────────────────────────────────────────────
-function ContactPage({ plan }) {
-  const contacts = [
-    { icon:"📧", label:"Email Us", value:"aamansharmaaman@gmail.com", sub:"We reply within 24 hours", action:()=>window.open("mailto:aamansharmaaman@gmail.com?subject=HRPulse Upgrade Enquiry"+(plan?` - ${plan} Plan`:"")+"&body=Hi, I'm interested in upgrading my HRPulse plan. Please get in touch.") },
-    { icon:"💬", label:"WhatsApp", value:"+91 XXXXX XXXXX", sub:"Chat with us directly", action:()=>window.open("https://wa.me/91XXXXXXXXXX?text=Hi, I'm interested in HRPulse"+(plan?` ${plan} plan`:"")+". Please share more details.") },
-    { icon:"📅", label:"Book a Demo", value:"Schedule a call", sub:"30-min product walkthrough", action:()=>window.open("https://calendly.com") },
-    { icon:"🐦", label:"Twitter / X", value:"@hrpulse", sub:"DM us anytime", action:()=>window.open("https://twitter.com/hrpulse") },
-    { icon:"💼", label:"LinkedIn", value:"HRPulse", sub:"Connect with our team", action:()=>window.open("https://linkedin.com") },
-  ];
-
-  return (
-    <div className="fu" style={{ maxWidth:640,margin:"0 auto" }}>
-      <div style={{ textAlign:"center",marginBottom:36 }}>
-        <div style={{ fontSize:40,marginBottom:12 }}>👋</div>
-        <div style={{ fontSize:26,fontWeight:900,color:"var(--text)",marginBottom:8 }}>Let's talk</div>
-        <div style={{ fontSize:14,color:"var(--text3)",maxWidth:400,margin:"0 auto" }}>
-          {plan ? `You're interested in the ${plan} plan — great choice! Reach out and we'll get you set up.` : "Have a question or want to upgrade? We'd love to hear from you."}
-        </div>
-      </div>
-
-      {plan && (
-        <div style={{ background:"var(--g)11",border:"1px solid var(--g)33",borderRadius:16,padding:"14px 20px",marginBottom:24,display:"flex",alignItems:"center",gap:12 }}>
-          <div style={{ fontSize:24 }}>🚀</div>
-          <div>
-            <div style={{ fontWeight:700,color:"var(--g)",fontSize:14 }}>Interested in {plan} Plan</div>
-            <div style={{ fontSize:12,color:"var(--text3)" }}>Mention this when you reach out for a faster response</div>
-          </div>
-        </div>
-      )}
-
-      <div style={{ display:"flex",flexDirection:"column",gap:12,marginBottom:32 }}>
-        {contacts.map(c => (
-          <div key={c.label} onClick={c.action} style={{ display:"flex",alignItems:"center",gap:16,padding:"16px 20px",background:"var(--s2)",border:"1px solid var(--border)",borderRadius:16,cursor:"pointer",transition:"all .2s" }}
-            onMouseEnter={e=>e.currentTarget.style.borderColor="var(--g)"}
-            onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border)"}>
-            <div style={{ fontSize:28,minWidth:40,textAlign:"center" }}>{c.icon}</div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontWeight:700,color:"var(--text)",fontSize:14 }}>{c.label}</div>
-              <div style={{ fontSize:13,color:"var(--g)",fontWeight:600 }}>{c.value}</div>
-              <div style={{ fontSize:11,color:"var(--text3)",marginTop:2 }}>{c.sub}</div>
-            </div>
-            <div style={{ color:"var(--text3)",fontSize:18 }}>→</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="card" style={{ textAlign:"center",background:"linear-gradient(135deg,var(--gl),var(--s1))",borderColor:"rgba(62,207,142,0.2)" }}>
-        <div style={{ fontSize:14,fontWeight:700,color:"var(--text)",marginBottom:6 }}>⚡ Average response time</div>
-        <div style={{ fontSize:28,fontWeight:900,color:"var(--g)" }}>{"< 4 hours"}</div>
-        <div style={{ fontSize:12,color:"var(--text3)",marginTop:4 }}>Monday – Saturday, 9am – 7pm IST</div>
-      </div>
-    </div>
-  );
-}
-
 function PricingPage() {
   const plans = [
     { name:"Starter", price:999, per:"month", color:"var(--text2)", badge:"", desc:"For small teams up to 10", features:["GPS Attendance","Selfie Verify","Leave Management","Basic Reports","Email Support"] },
@@ -1982,7 +1379,7 @@ function EmpsPage({ emps, setModal, isAdmin, deactivateEmp, busy, user }) {
       <div style={{ display:"flex",gap:10,marginBottom:16,flexWrap:"wrap" }}>
         <input placeholder="Search by name or email..." value={q} onChange={e=>setQ(e.target.value)} style={{ flex:1,minWidth:180 }}/>
         <select value={dept} onChange={e=>setDept(e.target.value)} style={{ width:170 }}><option value="all">All Departments</option>{depts.filter(d=>d!=="all").map(d=><option key={d}>{d}</option>)}</select>
-        <select value={rf} onChange={e=>setRf(e.target.value)} style={{ width:140 }}>{["all","employee","manager","hr","admin"].map(r=><option key={r} value={r}>{r==="all"?"All Roles":r}</option>)}</select>
+        <select value={rf} onChange={e=>setRf(e.target.value)} style={{ width:140 }}>{["all","employee","manager","hr","admin","super_admin"].map(r=><option key={r} value={r}>{r==="all"?"All Roles":r}</option>)}</select>
         <button className="btn btn-g" style={{ fontSize:12 }} onClick={()=>setShowInactive(v=>!v)}>{showInactive?"Active Only":"Show All"}</button>
       </div>
       <div style={{ fontSize:11,color:"var(--text3)",marginBottom:12 }}>{vis.length} employee{vis.length!==1?"s":""}</div>
@@ -2230,59 +1627,11 @@ function ReportsPage({ leaves, dash, allEmps, analytics, allAtt }) {
 }
 
 // ─── PROFILE PAGE ─────────────────────────────────────────────────────────────
-function ProfilePage({ user, mySum, bals, changePw, busy, useDemo, setUser }) {
+function ProfilePage({ user, mySum, bals, changePw, busy }) {
   const [cur,setCur]=useState(""); const [nxt,setNxt]=useState(""); const [cnf,setCnf]=useState(""); const [msg,setMsg]=useState("");
-  const [tab,setTab]=useState("personal");
-  const [saving,setSaving]=useState(false);
-
-  // Emergency/contact form
-  const [eForm,setEForm]=useState({ phone:user.phone||"", emergency:user.emergency||"" });
-
-  // Bank details form
-  const [bForm,setBForm]=useState({ bank_account:"", bank_ifsc:"", bank_name:"" });
-
-  useEffect(()=>{
-    // Load bank details from /auth/me
-    api.get("/auth/me").then(d=>{
-      setBForm({
-        bank_account: d.user?.bank_account||"",
-        bank_ifsc:    d.user?.bank_ifsc||"",
-        bank_name:    d.user?.bank_name||"",
-      });
-      setEForm({ phone:d.user?.phone||"", emergency:d.user?.emergency_contact||"" });
-    }).catch(()=>{});
-  },[]);
-
   const go=async()=>{ if(!cur||!nxt){setMsg("Fill all fields.");return;} if(nxt!==cnf){setMsg("Passwords don't match.");return;} if(nxt.length<6){setMsg("Min 6 chars.");return;} const ok=await changePw(cur,nxt); if(ok){setMsg("✓ Updated!");setCur("");setNxt("");setCnf("");} };
-
-  async function saveEmergency() {
-    setSaving(true);
-    try {
-      if (!useDemo) {
-        await api.patch("/employees/me/contact", { phone:eForm.phone, emergency_contact:eForm.emergency });
-      }
-      // Update local user state so Personal tab reflects new values immediately
-      if (setUser) setUser(u => ({ ...u, phone:eForm.phone, emergency:eForm.emergency }));
-      toast.success("Contact details saved!");
-    } catch(e) { toast.error("Failed to save: " + e.message); }
-    setSaving(false);
-  }
-
-  async function saveBank() {
-    setSaving(true);
-    try {
-      await api.patch("/payroll/bank-details", { bank_account:bForm.bank_account, bank_ifsc:bForm.bank_ifsc, bank_name:bForm.bank_name });
-      toast.success("Bank details saved!");
-    } catch(e) { toast.error("Failed to save bank details"); }
-    setSaving(false);
-  }
-
-  const TABS = ["personal","bank","emergency","password"];
-  const TAB_LABELS = { personal:"👤 Personal", bank:"🏦 Bank Details", emergency:"🆘 Emergency", password:"🔑 Password" };
-
   return (
-    <div className="fu" style={{ maxWidth:650 }}>
-      {/* Header */}
+    <div className="fu" style={{ maxWidth:620 }}>
       <div className="card" style={{ marginBottom:14 }}>
         <div style={{ display:"flex",gap:18,alignItems:"center" }}>
           <Av emp={user} size={60}/>
@@ -2293,8 +1642,6 @@ function ProfilePage({ user, mySum, bals, changePw, busy, useDemo, setUser }) {
           </div>
         </div>
       </div>
-
-      {/* Stats */}
       {mySum&&(
         <div className="g4" style={{ marginBottom:14 }}>
           {[["Present",mySum.present,"var(--g)"],["Late",mySum.late,"#F59E0B"],["On Leave",mySum.on_leave,"#8B5CF6"],["Hours",`${Math.round((mySum.total_minutes||0)/60)}h`,"#3B82F6"]].map(([l,v,c])=>(
@@ -2305,106 +1652,38 @@ function ProfilePage({ user, mySum, bals, changePw, busy, useDemo, setUser }) {
           ))}
         </div>
       )}
-
-      {/* Tabs */}
-      <div style={{ display:"flex",gap:6,marginBottom:14,flexWrap:"wrap" }}>
-        {TABS.map(t=>(
-          <button key={t} onClick={()=>setTab(t)}
-            style={{ padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:600,border:"none",cursor:"pointer",
-              background:tab===t?"var(--g)":"var(--s2)",
-              color:tab===t?"#000":"var(--text3)" }}>
-            {TAB_LABELS[t]}
-          </button>
+      <div className="card" style={{ marginBottom:14 }}>
+        <div className="sect">Personal Details</div>
+        {[["Code",user.code],["Email",user.email],["Phone",user.phone||"—"],["Department",user.dept],["Role",user.role],["Hire Date",user.hireDate||"—"],["Emergency",user.emergency||"—"]].map(([k,v])=>(
+          <div key={k} style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border)",fontSize:13 }}>
+            <span style={{ color:"var(--text3)" }}>{k}</span>
+            <span style={{ color:"var(--text)",fontWeight:500,textAlign:"right",maxWidth:260,wordBreak:"break-all" }}>{v}</span>
+          </div>
         ))}
       </div>
-
-      {/* Personal Tab */}
-      {tab==="personal"&&(
+      {bals.filter(b=>b.total_days>0).length>0&&(
         <div className="card" style={{ marginBottom:14 }}>
-          <div className="sect">Personal Details</div>
-          {[["Employee Code",user.code],["Email",user.email],["Phone",user.phone||"—"],["Department",user.dept],["Role",user.role],["Hire Date",user.hireDate||"—"]].map(([k,v])=>(
-            <div key={k} style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border)",fontSize:13 }}>
-              <span style={{ color:"var(--text3)" }}>{k}</span>
-              <span style={{ color:"var(--text)",fontWeight:500,textAlign:"right",maxWidth:260,wordBreak:"break-all" }}>{v}</span>
+          <div className="sect">Leave Balances</div>
+          {bals.filter(b=>b.total_days>0).map(b=>{const used=b.used_days||0,left=b.total_days-used-(b.pending_days||0);return(
+            <div key={b.id} style={{ padding:"8px 0",borderBottom:"1px solid var(--border)" }}>
+              <div style={{ display:"flex",justifyContent:"space-between",marginBottom:5 }}>
+                <span style={{ fontSize:12,color:"var(--text2)" }}>{b.leave_type?.name}</span>
+                <span style={{ fontSize:12,fontWeight:700,color:"var(--g)" }}>{left} / {b.total_days}</span>
+              </div>
+              <div className="pb"><div className="pf" style={{ width:`${b.total_days>0?Math.round(used/b.total_days*100):0}%`,background:"linear-gradient(90deg,var(--g)55,var(--g))" }}/></div>
+              {b.pending_days>0&&<div style={{ fontSize:10,color:"#F59E0B",marginTop:3 }}>{b.pending_days} pending</div>}
             </div>
-          ))}
-          {bals.filter(b=>b.total_days>0).length>0&&(
-            <>
-              <div className="sect" style={{ marginTop:16 }}>Leave Balances</div>
-              {bals.filter(b=>b.total_days>0).map(b=>{const used=b.used_days||0,left=b.total_days-used-(b.pending_days||0);return(
-                <div key={b.id} style={{ padding:"8px 0",borderBottom:"1px solid var(--border)" }}>
-                  <div style={{ display:"flex",justifyContent:"space-between",marginBottom:5 }}>
-                    <span style={{ fontSize:12,color:"var(--text2)" }}>{b.leave_type?.name}</span>
-                    <span style={{ fontSize:12,fontWeight:700,color:"var(--g)" }}>{left} / {b.total_days}</span>
-                  </div>
-                  <div className="pb"><div className="pf" style={{ width:`${b.total_days>0?Math.round(used/b.total_days*100):0}%`,background:"linear-gradient(90deg,var(--g)55,var(--g))" }}/></div>
-                  {b.pending_days>0&&<div style={{ fontSize:10,color:"#F59E0B",marginTop:3 }}>{b.pending_days} pending</div>}
-                </div>
-              );})}
-            </>
-          )}
+          );})}
         </div>
       )}
-
-      {/* Bank Details Tab */}
-      {tab==="bank"&&(
-        <div className="card" style={{ marginBottom:14 }}>
-          <div className="sect">🏦 Bank Account Details</div>
-          <div style={{ fontSize:12,color:"var(--text3)",marginBottom:16 }}>Your salary will be credited to this account</div>
-          <F label="Bank Name">
-            <input value={bForm.bank_name} onChange={e=>setBForm(p=>({...p,bank_name:e.target.value}))} placeholder="e.g. HDFC Bank"/>
-          </F>
-          <F label="Account Number">
-            <input value={bForm.bank_account} onChange={e=>setBForm(p=>({...p,bank_account:e.target.value}))} placeholder="e.g. 1234567890"/>
-          </F>
-          <F label="IFSC Code">
-            <input value={bForm.bank_ifsc} onChange={e=>setBForm(p=>({...p,bank_ifsc:e.target.value.toUpperCase()}))} placeholder="e.g. HDFC0001234"/>
-          </F>
-          {bForm.bank_account&&(
-            <div style={{ background:"rgba(62,207,142,0.06)",borderRadius:10,padding:"12px 14px",marginBottom:14,fontSize:12 }}>
-              <div style={{ color:"var(--text3)",fontSize:10,marginBottom:4 }}>SAVED ACCOUNT</div>
-              <div style={{ color:"var(--text)",fontWeight:600 }}>{bForm.bank_name||"Bank"}</div>
-              <div style={{ color:"var(--text3)" }}>****{bForm.bank_account.slice(-4)} · {bForm.bank_ifsc}</div>
-            </div>
-          )}
-          <button className="btn btn-g" onClick={saveBank} disabled={saving} style={{ width:"100%" }}>
-            {saving?"Saving...":"💾 Save Bank Details"}
-          </button>
-        </div>
-      )}
-
-      {/* Emergency Contact Tab */}
-      {tab==="emergency"&&(
-        <div className="card" style={{ marginBottom:14 }}>
-          <div className="sect">🆘 Emergency & Contact Details</div>
-          <div style={{ fontSize:12,color:"var(--text3)",marginBottom:16 }}>Update your phone number and emergency contact information</div>
-          <F label="Your Phone Number">
-            <input value={eForm.phone} onChange={e=>setEForm(p=>({...p,phone:e.target.value}))} placeholder="+91 98100 00000"/>
-          </F>
-          <F label="Emergency Contact Name & Phone">
-            <input value={eForm.emergency} onChange={e=>setEForm(p=>({...p,emergency:e.target.value}))} placeholder="e.g. Rahul Sharma — +91 98200 00000"/>
-          </F>
-          <div style={{ background:"rgba(239,68,68,0.06)",borderRadius:10,padding:"12px 14px",marginBottom:14,fontSize:12,border:"1px solid rgba(239,68,68,0.15)" }}>
-            <div style={{ color:"#EF4444",fontWeight:700,marginBottom:4 }}>⚠️ Important</div>
-            <div style={{ color:"var(--text3)" }}>This contact will be reached in case of emergency. Please keep it updated.</div>
-          </div>
-          <button className="btn btn-g" onClick={saveEmergency} disabled={saving} style={{ width:"100%" }}>
-            {saving?"Saving...":"💾 Save Contact Details"}
-          </button>
-        </div>
-      )}
-
-      {/* Password Tab */}
-      {tab==="password"&&(
-        <div className="card">
-          <div className="sect">🔑 Change Password</div>
-          <F label="Current Password"><input type="password" value={cur} onChange={e=>setCur(e.target.value)} placeholder="Current password"/></F>
-          <F label="New Password"><input type="password" value={nxt} onChange={e=>setNxt(e.target.value)} placeholder="Min 6 characters"/></F>
-          <F label="Confirm New Password"><input type="password" value={cnf} onChange={e=>setCnf(e.target.value)} placeholder="Repeat new password" onKeyDown={e=>e.key==="Enter"&&go()}/></F>
-          {msg&&<div style={{ fontSize:12,color:msg.startsWith("✓")?"var(--g)":"#EF4444",marginBottom:10 }}>{msg}</div>}
-          <button className="btn btn-p" onClick={go} disabled={busy} style={{ width:"100%" }}>{busy?<Spin/>:"Update Password"}</button>
-        </div>
-      )}
+      <div className="card">
+        <div className="sect">Change Password</div>
+        <F label="Current Password"><input type="password" value={cur} onChange={e=>setCur(e.target.value)} placeholder="Current password"/></F>
+        <F label="New Password"><input type="password" value={nxt} onChange={e=>setNxt(e.target.value)} placeholder="Min 6 characters"/></F>
+        <F label="Confirm New Password"><input type="password" value={cnf} onChange={e=>setCnf(e.target.value)} placeholder="Repeat new password" onKeyDown={e=>e.key==="Enter"&&go()}/></F>
+        {msg&&<div style={{ fontSize:12,color:msg.startsWith("✓")?"var(--g)":"#EF4444",marginBottom:10 }}>{msg}</div>}
+        <button className="btn btn-p" onClick={go} disabled={busy}>{busy?<Spin/>:"Update Password"}</button>
+      </div>
     </div>
   );
 }
@@ -2476,8 +1755,82 @@ function ModalHub({ modal, setModal, emps, ltypes, bals, user, depts, busy, appl
 }
 
 
-// ─── ROOT APP ─────────────────────────────────────────────────────────────────
+// ─── PLATFORM ADMIN PAGE ──────────────────────────────────────────────────────
+function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo }) {
+  const [search, setSearch] = useState("");
+  const [selRole, setSelRole] = useState("all");
+  const [editingId, setEditingId] = useState(null);
+  const [editRole, setEditRole] = useState("");
+  const [busy, setBusy] = useState(false);
 
+  const filtered = allEmps.filter(e =>
+    (selRole === "all" || e.role === selRole) &&
+    (e.name.toLowerCase().includes(search.toLowerCase()) || (e.email||"").toLowerCase().includes(search.toLowerCase()))
+  );
+
+  const handleRoleChange = async (empId, newRole) => {
+    setBusy(true);
+    try {
+      await updateEmp(empId, { role: newRole });
+      setEditingId(null);
+    } catch(err) {
+      toast.error(err.message || "Failed to update role");
+    }
+    setBusy(false);
+  };
+
+  const ROLE_COLORS = { super_admin:"#EF4444", admin:"#FB923C", hr:"#8B5CF6", manager:"#3B82F6", employee:"#3ECF8E" };
+  const ALL_ROLES = ["employee","manager","hr","admin","super_admin"];
+
+  return (
+    <div>
+      <div style={{ marginBottom:24 }}>
+        <div style={{ fontSize:22,fontWeight:800,color:"var(--text)",letterSpacing:-.5 }}>🛡 Platform Admin</div>
+        <div style={{ fontSize:12,color:"var(--text3)",marginTop:4 }}>Manage all user roles and access levels across the platform. Changes are permanent.</div>
+        {useDemo&&<div style={{ marginTop:8,padding:"8px 14px",background:"#F59E0B22",border:"1px solid #F59E0B55",borderRadius:8,fontSize:12,color:"#F59E0B" }}>⚠ Demo mode — role changes are saved to local storage and persist on refresh.</div>}
+      </div>
+
+      <div style={{ display:"flex",gap:10,marginBottom:16,flexWrap:"wrap" }}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name or email..." style={{ flex:1,minWidth:200,padding:"8px 12px",background:"var(--s2)",border:"1px solid var(--border2)",borderRadius:8,color:"var(--text)",fontSize:13 }}/>
+        <select value={selRole} onChange={e=>setSelRole(e.target.value)} style={{ padding:"8px 12px",background:"var(--s2)",border:"1px solid var(--border2)",borderRadius:8,color:"var(--text)",fontSize:13 }}>
+          <option value="all">All Roles</option>
+          {ALL_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+        </select>
+      </div>
+
+      <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+        {filtered.map(emp=>(
+          <div key={emp.id} style={{ background:"var(--s2)",border:"1px solid var(--border2)",borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:14 }}>
+            <div style={{ width:38,height:38,borderRadius:"50%",background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"var(--text)",flexShrink:0 }}>{emp.avatar}</div>
+            <div style={{ flex:1,minWidth:0 }}>
+              <div style={{ fontWeight:600,fontSize:14,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{emp.name}</div>
+              <div style={{ fontSize:11,color:"var(--text3)",marginTop:1 }}>{emp.dept||"—"} · {emp.title||"—"}</div>
+            </div>
+            <div style={{ flexShrink:0 }}>
+              {editingId===emp.id ? (
+                <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+                  <select value={editRole} onChange={e=>setEditRole(e.target.value)} style={{ padding:"5px 10px",background:"var(--s3)",border:"1px solid var(--border2)",borderRadius:7,color:"var(--text)",fontSize:12 }}>
+                    {ALL_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+                  </select>
+                  <button className="btn btn-p" style={{ fontSize:11,padding:"4px 12px" }} disabled={busy} onClick={()=>handleRoleChange(emp.id,editRole)}>Save</button>
+                  <button className="btn btn-g" style={{ fontSize:11,padding:"4px 10px" }} onClick={()=>setEditingId(null)}>✕</button>
+                </div>
+              ) : (
+                <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+                  <span style={{ fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,background:(ROLE_COLORS[emp.role]||"#888")+"22",color:ROLE_COLORS[emp.role]||"#888",textTransform:"capitalize" }}>{emp.role}</span>
+                  {emp.id!==user?.id&&<button className="btn btn-g" style={{ fontSize:11,padding:"4px 10px" }} onClick={()=>{setEditingId(emp.id);setEditRole(emp.role);}}>✏ Change</button>}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        {!filtered.length&&<div style={{ color:"var(--text3)",fontSize:13,padding:20,textAlign:"center" }}>No employees found.</div>}
+      </div>
+    </div>
+  );
+}
+
+// ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,setUser]     = useState(null);
   const [boot,setBoot]     = useState(true);
@@ -2494,7 +1847,7 @@ export default function App() {
   const [busy,setBusy]     = useState(false);
   const [clock,setClock]   = useState(new Date());
   const [allAtt,setAllAtt] = useState(SEED_ATT_ALL);
-  const [allEmps,setAllEmps]=useState(SEED_EMPLOYEES.map(eNorm));
+  const [allEmps,setAllEmps]=useState(()=>loadDemoState("allEmps",SEED_EMPLOYEES.map(eNorm)));
   const [useDemo,setUseDemo]=useState(false);
   const [tasks,setTasks]   = useState([
     { id:"t1",empId:"e4",title:"Migrate auth to JWT v2",  deadline:"2026-06-15",priority:"high",  progress:65,at:Date.now()-86400000 },
@@ -2519,11 +1872,6 @@ export default function App() {
         try {
           const { user:u } = await api.get("/auth/me");
           setUser(eNorm(u));
-          // Restore plan: prefer what backend sends, fallback to localStorage cache
-          const savedPlan = u.plan || (() => { try { return JSON.parse(localStorage.getItem("hp_plan")||"null"); } catch { return null; } })();
-          if (savedPlan) setUserPlan(savedPlan);
-          // Restore super admin status
-          api.get("/super/companies").then(()=>setIsSuperAdmin(true)).catch(()=>setIsSuperAdmin(false));
         } catch {
           clearTokens();
           // Fall through to demo mode
@@ -2533,33 +1881,9 @@ export default function App() {
     })();
   },[]);
 
-  const isAdmin = user?.role==="admin"||user?.role==="hr";
+  const isSuperAdmin = user?.role==="super_admin";
+  const isAdmin = isSuperAdmin||user?.role==="admin"||user?.role==="hr";
   const isMgr   = isAdmin||user?.role==="manager";
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-  const [userPlan, setUserPlan]         = useState(null);
-  const [contactPlan, setContactPlan]   = useState(null);
-
-  useEffect(() => {
-    const handler = (e) => { setContactPlan(e.detail?.plan||null); setNav("Contact Us"); };
-    window.addEventListener("hrpulse-nav", handler);
-    return () => window.removeEventListener("hrpulse-nav", handler);
-  }, []);
-
-  // Super admin plan changes update state + localStorage so hard refresh persists
-  useEffect(() => {
-    const handler = (e) => {
-      const { plan } = e.detail || {};
-      if (plan) {
-        setUserPlan(plan);
-        localStorage.setItem("hp_plan", JSON.stringify(plan));
-      } else {
-        setUserPlan(null);
-        localStorage.removeItem("hp_plan");
-      }
-    };
-    window.addEventListener("hrpulse-plan-update", handler);
-    return () => window.removeEventListener("hrpulse-plan-update", handler);
-  }, []);
 
   useEffect(()=>{ if(user) loadAll(); },[user?.id]);
 
@@ -2584,7 +1908,9 @@ export default function App() {
           api.get("/employees?limit=500&is_active=all").catch(()=>({employees:[]})),
           api.get("/analytics/overview").catch(()=>null),
         ]);
-        setEmps((eData.employees||[]).map(eNorm));
+        const empList=(eData.employees||[]).map(eNorm);
+        setEmps(empList);
+        if(empList.length) setAllEmps(empList);
         setAn(anal);
       }
     } catch { /* API not running, demo data used */ }
@@ -2598,14 +1924,7 @@ export default function App() {
     try {
       const d=await api.post("/auth/login",{email,password:pw});
       saveTokens(d.access_token,d.refresh_token);
-      setUser(eNorm(d.user)); setNav("Overview");
-      if (d.user.plan) {
-        setUserPlan(d.user.plan);
-        // Persist plan so hard refresh doesn't unlock everything
-        localStorage.setItem("hp_plan", JSON.stringify(d.user.plan));
-      }
-      api.get("/super/companies").then(()=>setIsSuperAdmin(true)).catch(()=>setIsSuperAdmin(false));
-      return true;
+      setUser(eNorm(d.user)); setNav("Overview"); return true;
     } catch(apiErr) {
       // If this is NOT a network error (i.e. the backend responded with 401/403),
       // return the real error for real users. Only fall through to demo for demo emails
@@ -2643,7 +1962,7 @@ export default function App() {
   };
   const logout=async()=>{
     await api.post("/auth/logout",{refresh_token:_rt}).catch(()=>{});
-    clearTokens(); localStorage.removeItem("hp_plan"); setUser(null); setEmps([]); setLeaves([]); setDash(null); setUseDemo(false); setUserPlan(null); setIsSuperAdmin(false);
+    clearTokens(); clearDemoState(); setUser(null); setEmps([]); setLeaves([]); setDash(null); setUseDemo(false); setAllEmps(SEED_EMPLOYEES.map(eNorm));
   };
 
   // ── Clock In/Out ──────────────────────────────────────────────────────────
@@ -2718,7 +2037,7 @@ export default function App() {
     setBusy(true);
     try {
       if (!useDemo) { const d=await api.post("/employees",{name:f.name,email:f.email,password:f.password,role:f.role||"employee",department:f.dept,title:f.title,phone:f.phone,emergency_contact:f.emergency,hire_date:f.hireDate||undefined}); setEmps(p=>[...p,eNorm(d.employee)]); }
-      else { const ne={id:`e${Date.now()}`,employee_code:`E${String(allEmps.length+1).padStart(3,"0")}`,name:f.name,email:f.email,password_hash:"",role:f.role||"employee",department:f.dept,title:f.title||"",phone:f.phone||"",emergency_contact:f.emergency||"",avatar_initials:f.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase(),hire_date:f.hireDate||"",is_active:true}; setEmps(p=>[...p,eNorm(ne)]); setAllEmps(p=>[...p,eNorm(ne)]); }
+      else { const ne={id:`e${Date.now()}`,employee_code:`E${String(allEmps.length+1).padStart(3,"0")}`,name:f.name,email:f.email,password_hash:"",role:f.role||"employee",department:f.dept,title:f.title||"",phone:f.phone||"",emergency_contact:f.emergency||"",avatar_initials:f.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase(),hire_date:f.hireDate||"",is_active:true}; const normNe=eNorm(ne); setEmps(p=>{const n=[...p,normNe];return n;}); setAllEmps(p=>{const n=[...p,normNe];saveDemoState("allEmps",n);return n;}); }
       toast.success("Employee added!"); setModal(null);
     } catch(e) { toast.error(e.message); }
     setBusy(false);
@@ -2727,7 +2046,7 @@ export default function App() {
     setBusy(true);
     try {
       if (!useDemo) { const d=await api.patch(`/employees/${id}`,f); setEmps(p=>p.map(e=>e.id===id?eNorm(d.employee):e)); }
-      else setEmps(p=>p.map(e=>e.id===id?{...e,...eNorm({...e,name:f.name||e.name,title:f.title||e.title,phone:f.phone||e.phone,department:f.department||e.dept,role:f.role||e.role,hire_date:f.hire_date||e.hireDate,emergency_contact:f.emergency_contact||e.emergency,avatar_initials:e.avatar})}:e));
+      else { setEmps(p=>p.map(e=>e.id===id?{...e,...eNorm({...e,name:f.name||e.name,title:f.title||e.title,phone:f.phone||e.phone,department:f.department||e.dept,role:f.role||e.role,hire_date:f.hire_date||e.hireDate,emergency_contact:f.emergency_contact||e.emergency,avatar_initials:e.avatar})}:e)); setAllEmps(p=>{const n=p.map(e=>e.id===id?{...e,...eNorm({...e,name:f.name||e.name,title:f.title||e.title,phone:f.phone||e.phone,department:f.department||e.dept,role:f.role||e.role,hire_date:f.hire_date||e.hireDate,emergency_contact:f.emergency_contact||e.emergency,avatar_initials:e.avatar})}:e);saveDemoState("allEmps",n);return n;}); }
       toast.success("Updated!"); setModal(null);
     } catch(e) { toast.error(e.message); }
     setBusy(false);
@@ -2736,7 +2055,9 @@ export default function App() {
     setBusy(true);
     try {
       if (!useDemo) await api.delete(`/employees/${id}`);
-      setEmps(p=>p.map(e=>e.id===id?{...e,isActive:false}:e)); toast.success("Deactivated");
+      setEmps(p=>p.map(e=>e.id===id?{...e,isActive:false}:e));
+      setAllEmps(p=>{const n=p.map(e=>e.id===id?{...e,isActive:false}:e);if(useDemo)saveDemoState("allEmps",n);return n;});
+      toast.success("Deactivated");
     } catch(e) { toast.error(e.message); }
     setBusy(false);
   };
@@ -2753,15 +2074,15 @@ export default function App() {
   const pending  = leaves.filter(l=>l.status==="pending");
   const depts    = Object.keys(DEPT_COLORS);
 
-  const NAV_LINKS = isSuperAdmin===true
-    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Contact Us","Super Admin","My Profile"]
+  const NAV_LINKS = isSuperAdmin
+    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Platform Admin","My Profile"]
     : isAdmin
-    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Contact Us","Company Settings","My Profile"]
+    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","My Profile"]
     : isMgr
-    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Performance","Announcements","Contact Us","My Profile"]
-    : ["Overview","My Attendance","Apply Leave","Announcements","Contact Us","My Profile"];
+    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Performance","Announcements","My Profile"]
+    : ["Overview","My Attendance","Apply Leave","Announcements","My Profile"];
 
-  const ICONS = { Overview:"◈",Analytics:"📊","AI Alerts":"🤖","War Room":"🎯",Attendance:"◷","My Attendance":"◷",Employees:"⊛",Leave:"◇","Apply Leave":"◇",Payroll:"💳",Performance:"◉",Announcements:"📢",Reports:"◎",Onboarding:"🚀",Pricing:"💰","Contact Us":"📞","Super Admin":"🛡️","My Profile":"◐", "Company Settings":"🏢" };
+  const ICONS = { Overview:"◈",Analytics:"📊","AI Alerts":"🤖","War Room":"🎯",Attendance:"◷","My Attendance":"◷",Employees:"⊛",Leave:"◇","Apply Leave":"◇",Payroll:"💳",Performance:"◉",Announcements:"📢",Reports:"◎",Onboarding:"🚀",Pricing:"💰","Platform Admin":"🛡","My Profile":"◐" };
 
   if (boot) return (
     <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)" }}>
@@ -2842,24 +2163,21 @@ export default function App() {
 
         {/* Pages */}
         {nav==="Overview"     &&<OverviewPage  user={user} isMgr={isMgr} isAdmin={isAdmin} dash={dash} todayRec={todayRec} myLeaves={myLeaves} pending={pending} reviewLeave={reviewLeave} setModal={setModal} mySum={mySum} anns={anns} busy={busy} onCheckIn={handleCheckIn} onCheckOut={handleCheckOut} bals={bals} allAtt={allAtt} allEmps={allEmps}/>}
-        {nav==="Analytics"    &&(hasFeature(userPlan,"Analytics")?<AnalyticsPage analytics={analytics} allAtt={allAtt} allEmps={allEmps}/>:<LockedFeature name="Analytics" setNav={setNav}/>)}
-        {nav==="AI Alerts"    &&(hasFeature(userPlan,"AI Alerts")?<AIAlertsPage  allEmps={allEmps} allAtt={allAtt} analytics={analytics}/>:<LockedFeature name="AI Alerts" setNav={setNav}/>)}
-        {nav==="War Room"     &&(hasFeature(userPlan,"War Room")?<WarRoomPage   allEmps={allEmps} allAtt={allAtt}/>:<LockedFeature name="War Room" setNav={setNav}/>)}
+        {nav==="Analytics"    &&<AnalyticsPage analytics={analytics} allAtt={allAtt} allEmps={allEmps}/>}
+        {nav==="AI Alerts"    &&<AIAlertsPage  allEmps={allEmps} allAtt={allAtt} analytics={analytics}/>}
+        {nav==="War Room"     &&<WarRoomPage   allEmps={allEmps} allAtt={allAtt}/>}
         {(nav==="Attendance"||nav==="My Attendance")&&<AttPage isMgr={isMgr} todayRec={todayRec} att={att} mySum={mySum} onCheckIn={handleCheckIn} onCheckOut={handleCheckOut} busy={busy} allAtt={allAtt} allEmps={allEmps}/>}
         {nav==="Employees"    &&<EmpsPage      emps={emps.length?emps:allEmps} setModal={setModal} isAdmin={isAdmin} deactivateEmp={deactivateEmp} busy={busy} user={user}/>}
         {(nav==="Leave"||nav==="Apply Leave")&&<LeavePage isMgr={isMgr} leaves={leaves} myLeaves={myLeaves} pending={pending} bals={bals} reviewLeave={reviewLeave} cancelLeave={cancelLeave} setModal={setModal} busy={busy}/>}
-        {nav==="Payroll" &&(hasFeature(userPlan,"Payroll")?<PayrollPage useDemo={useDemo} allEmps={emps.length?emps:allEmps}/>:<LockedFeature name="Payroll" setNav={setNav}/>)}
+        {nav==="Payroll"      &&<PayrollPage   allEmps={allEmps} allAtt={allAtt}/>}
         {nav==="Performance"  &&<PerfPage      user={user} isMgr={isMgr} emps={emps.length?emps:allEmps} tasks={tasks} updProg={updProg} setModal={setModal}/>}
         {nav==="Announcements"&&<AnnsPage      anns={anns} delAnn={delAnn} isAdmin={isAdmin}/>}
         {nav==="Reports"      &&<ReportsPage   leaves={leaves} dash={dash} allEmps={allEmps} analytics={analytics} allAtt={allAtt}/>}
         {nav==="Onboarding"   &&<OnboardingPage/>}
         {nav==="Pricing"      &&<PricingPage/>}
-        {nav==="Contact Us"   &&<ContactPage plan={contactPlan}/>}
-        {nav==="Super Admin"  &&<SuperAdminPage currentUser={user}/>}
-        {nav==="My Profile"   &&<ProfilePage   user={user} mySum={mySum} bals={bals} changePw={changePw} busy={busy} useDemo={useDemo} setUser={setUser}/>}
+        {nav==="Platform Admin"&&<PlatformAdminPage user={user} allEmps={allEmps} setAllEmps={setAllEmps} updateEmp={updateEmp} useDemo={useDemo}/>}
+        {nav==="My Profile"   &&<ProfilePage   user={user} mySum={mySum} bals={bals} changePw={changePw} busy={busy}/>}
       </main>
     </div>
   );
 }
-
-// ─── SUPER ADMIN PAGE ─────────────────────────────────────────────────────────
