@@ -62,7 +62,9 @@ const PLAN_FEATURES = {
   enterprise: ["GPS Attendance","Selfie Verify","Leave Management","Basic Reports","Email Support","AI Alerts","Payroll","War Room","Analytics","QR Attendance","Priority Support","Custom Integrations","SLA Guarantee","Dedicated Account Manager","HRMS API Access","Biometric Integration"],
 };
 function hasFeature(plan, feature) {
-  if (!plan) return true;
+  // FIX: null plan = no plan loaded yet. Default to starter features only.
+  // Never grant full access on null plan (prevents hard-refresh unlock bug).
+  if (!plan) return PLAN_FEATURES["starter"].includes(feature);
   if (plan.status === "suspended" || plan.status === "cancelled") return false;
   const features = plan.features || PLAN_FEATURES[plan.name] || [];
   return features.includes(feature);
@@ -1505,9 +1507,17 @@ function SuperAdminPage({ currentUser }) {
     try {
       await api.patch(`/super/companies/${selected.id}/plan`, form);
       toast.success("Plan updated!");
-      // Refresh
+      // Refresh companies list
       const c = await api.get("/super/companies");
       setCompanies(c.companies || []);
+      // Notify App so userPlan state + localStorage are updated immediately
+      // This ensures the change persists for the affected company on refresh
+      const updatedCo = (c.companies || []).find(co => co.id === selected.id);
+      if (updatedCo) {
+        const newSub = updatedCo.company_subscriptions?.[0];
+        const newPlan = newSub ? { name: newSub.plans?.name, status: newSub.status, features: newSub.plans?.features } : null;
+        window.dispatchEvent(new CustomEvent("hrpulse-plan-update", { detail: { companyId: selected.id, plan: newPlan } }));
+      }
       setSelected(null);
     } catch(e) { toast.error(e.message); }
     setBusy(false);
@@ -2467,6 +2477,7 @@ function ModalHub({ modal, setModal, emps, ltypes, bals, user, depts, busy, appl
 
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
+
 export default function App() {
   const [user,setUser]     = useState(null);
   const [boot,setBoot]     = useState(true);
@@ -2508,6 +2519,11 @@ export default function App() {
         try {
           const { user:u } = await api.get("/auth/me");
           setUser(eNorm(u));
+          // Restore plan: prefer what backend sends, fallback to localStorage cache
+          const savedPlan = u.plan || (() => { try { return JSON.parse(localStorage.getItem("hp_plan")||"null"); } catch { return null; } })();
+          if (savedPlan) setUserPlan(savedPlan);
+          // Restore super admin status
+          api.get("/super/companies").then(()=>setIsSuperAdmin(true)).catch(()=>setIsSuperAdmin(false));
         } catch {
           clearTokens();
           // Fall through to demo mode
@@ -2527,6 +2543,22 @@ export default function App() {
     const handler = (e) => { setContactPlan(e.detail?.plan||null); setNav("Contact Us"); };
     window.addEventListener("hrpulse-nav", handler);
     return () => window.removeEventListener("hrpulse-nav", handler);
+  }, []);
+
+  // Super admin plan changes update state + localStorage so hard refresh persists
+  useEffect(() => {
+    const handler = (e) => {
+      const { plan } = e.detail || {};
+      if (plan) {
+        setUserPlan(plan);
+        localStorage.setItem("hp_plan", JSON.stringify(plan));
+      } else {
+        setUserPlan(null);
+        localStorage.removeItem("hp_plan");
+      }
+    };
+    window.addEventListener("hrpulse-plan-update", handler);
+    return () => window.removeEventListener("hrpulse-plan-update", handler);
   }, []);
 
   useEffect(()=>{ if(user) loadAll(); },[user?.id]);
@@ -2567,7 +2599,11 @@ export default function App() {
       const d=await api.post("/auth/login",{email,password:pw});
       saveTokens(d.access_token,d.refresh_token);
       setUser(eNorm(d.user)); setNav("Overview");
-      if (d.user.plan) setUserPlan(d.user.plan);
+      if (d.user.plan) {
+        setUserPlan(d.user.plan);
+        // Persist plan so hard refresh doesn't unlock everything
+        localStorage.setItem("hp_plan", JSON.stringify(d.user.plan));
+      }
       api.get("/super/companies").then(()=>setIsSuperAdmin(true)).catch(()=>setIsSuperAdmin(false));
       return true;
     } catch(apiErr) {
@@ -2607,7 +2643,7 @@ export default function App() {
   };
   const logout=async()=>{
     await api.post("/auth/logout",{refresh_token:_rt}).catch(()=>{});
-    clearTokens(); setUser(null); setEmps([]); setLeaves([]); setDash(null); setUseDemo(false);
+    clearTokens(); localStorage.removeItem("hp_plan"); setUser(null); setEmps([]); setLeaves([]); setDash(null); setUseDemo(false); setUserPlan(null); setIsSuperAdmin(false);
   };
 
   // ── Clock In/Out ──────────────────────────────────────────────────────────
@@ -2720,12 +2756,12 @@ export default function App() {
   const NAV_LINKS = isSuperAdmin===true
     ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Contact Us","Super Admin","My Profile"]
     : isAdmin
-    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Contact Us","My Profile"]
+    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Contact Us","Company Settings","My Profile"]
     : isMgr
     ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Performance","Announcements","Contact Us","My Profile"]
     : ["Overview","My Attendance","Apply Leave","Announcements","Contact Us","My Profile"];
 
-  const ICONS = { Overview:"◈",Analytics:"📊","AI Alerts":"🤖","War Room":"🎯",Attendance:"◷","My Attendance":"◷",Employees:"⊛",Leave:"◇","Apply Leave":"◇",Payroll:"💳",Performance:"◉",Announcements:"📢",Reports:"◎",Onboarding:"🚀",Pricing:"💰","Contact Us":"📞","Super Admin":"🛡️","My Profile":"◐" };
+  const ICONS = { Overview:"◈",Analytics:"📊","AI Alerts":"🤖","War Room":"🎯",Attendance:"◷","My Attendance":"◷",Employees:"⊛",Leave:"◇","Apply Leave":"◇",Payroll:"💳",Performance:"◉",Announcements:"📢",Reports:"◎",Onboarding:"🚀",Pricing:"💰","Contact Us":"📞","Super Admin":"🛡️","My Profile":"◐", "Company Settings":"🏢" };
 
   if (boot) return (
     <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)" }}>
