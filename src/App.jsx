@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { io } from "socket.io-client";
 import toast, { Toaster } from "react-hot-toast";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -10,7 +11,6 @@ const BASE = import.meta.env.VITE_API_URL || "http://localhost:4000/api/v1";
 let _at = localStorage.getItem("hp_at") || null;
 let _rt = localStorage.getItem("hp_rt") || null;
 
-// Demo state persistence helpers
 function saveDemoState(key, data) { try { localStorage.setItem("hp_demo_"+key, JSON.stringify(data)); } catch {} }
 function loadDemoState(key, fallback) { try { const v=localStorage.getItem("hp_demo_"+key); return v?JSON.parse(v):fallback; } catch { return fallback; } }
 function clearDemoState() { ["emps","leaves","tasks","anns","allEmps"].forEach(k=>localStorage.removeItem("hp_demo_"+k)); }
@@ -47,6 +47,14 @@ async function call(path, opts = {}, retry = true) {
     } catch {}
     clearTokens(); window.location.reload(); return null;
   }
+  // ✅ FIX: Capture 403 suspended responses before throwing
+  if (res.status === 403) {
+    const data = await res.json().catch(() => ({}));
+    const err = new Error(data.error || data.message || "Access denied");
+    err.status = 403;
+    err.suspended = data.suspended || false;
+    throw err;
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || data.message || `Error ${res.status}`);
   return data;
@@ -60,7 +68,7 @@ const api = {
   postForm:(p,fd)=>call(p,{method:"POST",body:fd,headers:{}}),
 };
 
-// ─── SEED DATA (demo / offline fallback) ─────────────────────────────────────
+// ─── SEED DATA ────────────────────────────────────────────────────────────────
 const SEED_EMPLOYEES = [
   { id:"e1", employee_code:"E001", name:"Arjun Mehta",    email:"arjun@hrpulse.io",  password_hash:"", role:"admin",    department:"Management",  title:"CEO",             avatar_initials:"AM", hire_date:"2022-01-10", is_active:true,  phone:"+91 98100 11111" },
   { id:"e2", employee_code:"E002", name:"Priya Sharma",   email:"priya@hrpulse.io",  password_hash:"", role:"hr",       department:"HR",           title:"HR Manager",      avatar_initials:"PS", hire_date:"2022-03-15", is_active:true,  phone:"+91 98100 22222" },
@@ -144,7 +152,7 @@ const fmtD  = iso => iso ? new Date(iso).toLocaleDateString("en-IN",{day:"numeri
 const fmtH  = m   => m ? `${Math.floor(m/60)}h ${m%60}m` : "—";
 const fmtAgo= ms  => { const s=Math.floor((Date.now()-ms)/1000); if(s<60)return"just now"; if(s<3600)return`${Math.floor(s/60)}m ago`; if(s<86400)return`${Math.floor(s/3600)}h ago`; return`${Math.floor(s/86400)}d ago`; };
 const rupee = n => `₹${Number(n).toLocaleString("en-IN")}`;
-const eNorm = e=>{ const n=e.name||e.full_name||e.email||"?"; return { id:e.id, code:e.employee_code, name:n, email:e.email||"", role:e.role||"employee", dept:e.department||"", title:e.title||"", phone:e.phone||"", emergency:e.emergency_contact||"", avatar:e.avatar_initials||(n&&n!="?"?n.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase():"?"), hireDate:e.hire_date||"", isActive:e.is_active??true }; };
+const eNorm = e=>{ const n=e.name||e.full_name||e.email||"?"; return { id:e.id, code:e.employee_code, name:n, email:e.email||"", role:e.role||"employee", department:e.department||"", dept:e.department||e.dept||"", title:e.title||"", phone:e.phone||"", emergency:e.emergency_contact||e.emergency||"", avatar:e.avatar_initials||(n&&n!="?"?n.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase():"?"), hireDate:e.hire_date||e.hireDate||"", isActive:e.is_active??true, company_id:e.company_id||null, plan:e.plan||null }; };
 const lNorm = l=>({ id:l.id, empId:l.employee_id, empName:l.employee?.name||"", deptName:l.employee?.department||"", avatar:l.employee?.avatar_initials||"?", type:l.leave_type?.name||"Leave", from:l.start_date, to:l.end_date, days:l.total_days, reason:l.reason||"", status:l.status, reviewer:l.reviewer?.name||"", reviewNote:l.review_note||"", at:new Date(l.created_at).getTime() });
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
@@ -182,7 +190,6 @@ html, body { background: var(--bg); font-family: 'Cabinet Grotesk', sans-serif; 
 ::-webkit-scrollbar-thumb { background: var(--s4); border-radius: 4px; }
 ::selection { background: rgba(62,207,142,0.2); }
 
-/* ── Animations ── */
 @keyframes fadeUp   { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:none; } }
 @keyframes spin     { to { transform: rotate(360deg); } }
 @keyframes pulse    { 0%,100%{opacity:1} 50%{opacity:.4} }
@@ -191,12 +198,12 @@ html, body { background: var(--bg); font-family: 'Cabinet Grotesk', sans-serif; 
 @keyframes slideIn  { from{opacity:0;transform:translateX(-12px)} to{opacity:1;transform:none} }
 @keyframes popIn    { from{opacity:0;transform:scale(.94)} to{opacity:1;transform:scale(1)} }
 @keyframes glow     { 0%,100%{box-shadow:0 0 18px rgba(62,207,142,0.2)} 50%{box-shadow:0 0 32px rgba(62,207,142,0.45)} }
+@keyframes upgradeShimmer { 0%{background-position:200% center} 100%{background-position:-200% center} }
 
 .fu   { animation: fadeUp .28s cubic-bezier(.16,1,.3,1); }
 .si   { animation: slideIn .22s ease; }
 .pi   { animation: popIn .2s cubic-bezier(.16,1,.3,1); }
 
-/* ── Core ── */
 input, select, textarea {
   background: var(--s2); border: 1.5px solid var(--border2); color: var(--text);
   border-radius: 10px; padding: 10px 14px; font-size: 13px;
@@ -207,7 +214,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); }
 button { font-family: inherit; cursor: pointer; border: none; transition: all .18s; outline: none; }
 label  { font-size: 10px; color: var(--text3); font-weight: 700; margin-bottom: 5px; display: block; letter-spacing: 1px; text-transform: uppercase; }
 
-/* ── Buttons ── */
 .btn { display:inline-flex; align-items:center; justify-content:center; gap:7px; border-radius:10px; font-weight:700; font-size:13px; padding:9px 18px; white-space:nowrap; letter-spacing:.02em; }
 .btn-p { background:linear-gradient(135deg,var(--g),var(--g2)); color:#000; }
 .btn-p:hover { transform:translateY(-1px); box-shadow:0 6px 24px rgba(62,207,142,0.35); }
@@ -222,32 +228,37 @@ label  { font-size: 10px; color: var(--text3); font-weight: 700; margin-bottom: 
 .btn-w:hover { background:rgba(245,158,11,0.15); }
 .btn-b { background:rgba(59,130,246,0.1); color:var(--blue); border:1px solid rgba(59,130,246,0.2); }
 .btn-b:hover { background:rgba(59,130,246,0.18); }
+.btn-upgrade {
+  background: linear-gradient(135deg, #F59E0B, #EF4444, #8B5CF6);
+  background-size: 200%;
+  animation: upgradeShimmer 3s infinite;
+  color: #fff;
+  font-weight: 800;
+  border: none;
+}
+.btn-upgrade:hover { transform:translateY(-1px); box-shadow:0 6px 24px rgba(245,158,11,0.4); }
 
-/* ── Cards ── */
 .card { background:var(--s1); border:1px solid var(--border); border-radius:16px; padding:22px; transition:border-color .2s; }
 .card:hover { border-color:var(--border2); }
 .card-sm { padding:14px 16px; }
 
-/* ── Nav ── */
 .nav { cursor:pointer; padding:10px 13px; border-radius:11px; font-size:13px; font-weight:500; color:var(--text2); transition:all .18s; display:flex; align-items:center; gap:10px; user-select:none; position:relative; }
 .nav:hover { background:var(--s2); color:var(--text); }
 .nav.on { background:var(--gd); color:var(--g); font-weight:700; border:1px solid rgba(62,207,142,0.18); }
 .nav.on::before { content:''; position:absolute; left:0; top:25%; bottom:25%; width:3px; background:var(--g); border-radius:0 2px 2px 0; }
+.nav.locked-nav { opacity:1 !important; cursor:pointer !important; }
+.nav.locked-nav:hover { background:rgba(245,158,11,0.06); color:var(--text2); }
 
-/* ── Tab ── */
 .tab { cursor:pointer; padding:7px 15px; border-radius:9px; font-size:12px; font-weight:600; color:var(--text3); border:none; background:transparent; transition:all .18s; font-family:inherit; }
 .tab:hover { color:var(--text2); background:var(--s2); }
 .tab.on { background:var(--s2); color:var(--g); border:1px solid var(--border2); }
 
-/* ── Badge/Chip ── */
 .chip { display:inline-flex; align-items:center; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:700; letter-spacing:.3px; }
 
-/* ── Row ── */
 .row { display:flex; align-items:center; gap:12px; padding:11px 6px; border-radius:10px; transition:background .15s; border-bottom:1px solid var(--border); }
 .row:hover { background:var(--s2); }
 .row:last-child { border-bottom:none; }
 
-/* ── Misc ── */
 .spin { width:16px; height:16px; border:2px solid var(--s4); border-top-color:var(--g); border-radius:50%; animation:spin .6s linear infinite; display:inline-block; flex-shrink:0; }
 .spin-lg { width:28px; height:28px; border-width:3px; }
 .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.7); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; z-index:1000; padding:16px; animation:fadeUp .18s; }
@@ -261,25 +272,19 @@ label  { font-size: 10px; color: var(--text3); font-weight: 700; margin-bottom: 
 .sect { font-size:17px; font-weight:800; color:var(--text); margin-bottom:14px; letter-spacing:-.3px; }
 .mono { font-family:var(--mono); }
 
-/* ── Grid ── */
 .g4 { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
 .g3 { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
 .g2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
 
-/* ── Sidebar ── */
 .sidebar { width:220px; background:var(--bg2); border-right:1px solid var(--border); display:flex; flex-direction:column; padding:20px 12px; gap:2px; position:sticky; top:0; height:100vh; overflow-y:auto; flex-shrink:0; }
 
-/* ── Tooltip ── */
 .recharts-tooltip-wrapper .recharts-default-tooltip { background:var(--s2) !important; border:1px solid var(--border2) !important; border-radius:10px !important; font-size:12px !important; }
 
-/* ── AI Alert card ── */
 .ai-card { background:linear-gradient(135deg,#0d1a2e,#0a1520); border:1px solid rgba(59,130,246,0.25); border-radius:14px; padding:16px; position:relative; overflow:hidden; }
 .ai-card::before { content:''; position:absolute; top:-40px; right:-40px; width:120px; height:120px; background:radial-gradient(circle,rgba(59,130,246,0.15),transparent 70%); border-radius:50%; pointer-events:none; }
 
-/* ── Payroll card ── */
 .payroll-card { background:linear-gradient(135deg,#0d1a10,#091510); border:1px solid rgba(62,207,142,0.2); border-radius:14px; padding:20px; }
 
-/* ── War Room ── */
 .warroom { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:10px; }
 .emp-tile { background:var(--s2); border:1px solid var(--border); border-radius:12px; padding:14px 10px; text-align:center; transition:all .2s; }
 .emp-tile:hover { border-color:var(--border2); transform:translateY(-2px); }
@@ -287,13 +292,11 @@ label  { font-size: 10px; color: var(--text3); font-weight: 700; margin-bottom: 
 .emp-tile.clocked-out { border-color:rgba(239,68,68,0.25); background:rgba(239,68,68,0.03); }
 .emp-tile.on-leave    { border-color:rgba(139,92,246,0.3);  background:rgba(139,92,246,0.04); }
 
-/* ── Onboarding ── */
 .ob-step { display:flex; align-items:center; gap:14px; padding:14px; border-radius:12px; border:1px solid var(--border); background:var(--s2); margin-bottom:10px; transition:all .2s; }
 .ob-step.done { border-color:rgba(62,207,142,0.3); background:rgba(62,207,142,0.04); }
 .ob-num { width:32px; height:32px; border-radius:50%; background:var(--s3); border:1px solid var(--border2); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800; color:var(--text3); flex-shrink:0; }
 .ob-step.done .ob-num { background:var(--gd); color:var(--g); border-color:rgba(62,207,142,0.3); }
 
-/* ── Pricing ── */
 .plan-card { border:1px solid var(--border2); border-radius:16px; padding:24px; background:var(--s1); transition:all .2s; cursor:default; }
 .plan-card.featured { border-color:var(--g); background:linear-gradient(160deg,var(--gl),var(--s1)); box-shadow:0 0 0 1px rgba(62,207,142,0.3),0 8px 32px rgba(62,207,142,0.1); }
 .plan-price { font-size:36px; font-weight:900; line-height:1; letter-spacing:-1px; }
@@ -301,7 +304,49 @@ label  { font-size: 10px; color: var(--text3); font-weight: 700; margin-bottom: 
 .plan-feat:last-child { border-bottom:none; }
 .plan-feat::before { content:'✓'; color:var(--g); font-weight:800; flex-shrink:0; }
 
-/* ── Mobile ── */
+.upgrade-modal {
+  background: linear-gradient(160deg, #0d1a2e, #0a1020);
+  border: 1px solid rgba(245,158,11,0.3);
+  border-radius: 24px;
+  padding: 36px;
+  width: 520px;
+  max-width: 100%;
+  animation: popIn .22s;
+  position: relative;
+  overflow: hidden;
+}
+.upgrade-modal::before {
+  content: '';
+  position: absolute;
+  top: -80px; right: -80px;
+  width: 240px; height: 240px;
+  background: radial-gradient(circle, rgba(245,158,11,0.12), transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.upgrade-modal::after {
+  content: '';
+  position: absolute;
+  bottom: -60px; left: -60px;
+  width: 180px; height: 180px;
+  background: radial-gradient(circle, rgba(139,92,246,0.1), transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.upgrade-feature-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 9px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.05);
+  margin-bottom: 7px;
+  font-size: 13px; color: var(--text2);
+}
+.upgrade-feature-row .feat-icon {
+  width: 28px; height: 28px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; flex-shrink: 0;
+}
+
 @media(max-width:768px) {
   .sidebar { position:fixed; bottom:0; left:0; right:0; height:60px; width:100%!important; flex-direction:row!important; padding:0 6px!important; border-right:none!important; border-top:1px solid var(--border); z-index:100; overflow-x:auto; overflow-y:hidden; align-items:center; }
   .nav { flex-direction:column; gap:2px; font-size:8px; padding:6px 8px; min-width:52px; border-radius:8px; }
@@ -335,7 +380,7 @@ const Badge = ({ s }) => {
 };
 
 const Av = ({ emp, size=38 }) => {
-  const c = gc(emp?.dept||"");
+  const c = gc(emp?.dept||emp?.department||"");
   return (
     <div style={{ width:size, height:size, borderRadius:Math.round(size*.26), background:`${c}12`, border:`1.5px solid ${c}35`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:size*.32, fontWeight:800, color:c, flexShrink:0 }}>
       {emp?.avatar||"?"}
@@ -378,6 +423,78 @@ const KPI = ({ label, val, pct=0, color="#3ECF8E", icon, sub, trend }) => (
 const F = ({ label, children }) => <div style={{ marginBottom:13 }}><label>{label}</label>{children}</div>;
 const Sk = ({ h=18, w="100%", mb=8 }) => <div className="sk" style={{ height:h, width:w, marginBottom:mb }}/>;
 const Divider = () => <div style={{ height:1, background:"var(--border)", margin:"18px 0" }}/>;
+
+// ─── UPGRADE MODAL ───────────────────────────────────────────────────────────
+function UpgradeModal({ feature, onClose, onGoToPricing }) {
+  const FEATURE_DETAILS = {
+    "Analytics":   { icon:"📊", desc:"Deep workforce analytics with 14-day attendance trends, department breakdowns, and KPI tracking.", plan:"Growth", features:["14-day Attendance Trend","Department Distribution","Real-time KPI Dashboard","Export Reports"] },
+    "AI Alerts":   { icon:"🤖", desc:"AI-powered anomaly detection that spots late streaks, absence patterns, and attendance drops before they become problems.", plan:"Growth", features:["Late Streak Detection","Absence Pattern Alerts","Attendance Drop Warnings","Department-level Risk Scoring"] },
+    "War Room":    { icon:"🎯", desc:"Live real-time view of who's in, who's out, and who's on leave — across your entire organisation right now.", plan:"Growth", features:["Live Clock-in Status","Department Heatmap","Real-time Attendance Rate","Auto-refreshing Feed"] },
+    "Payroll":     { icon:"💳", desc:"Automated payroll computation with salary slabs, deductions, PF/tax breakdowns, and one-click payslip delivery.", plan:"Growth", features:["Auto Salary Computation","PF & Tax Deductions","Payslip PDF Generation","Bulk Email Payslips"] },
+  };
+  const d = FEATURE_DETAILS[feature] || { icon:"🔒", desc:"This feature is available on the Growth plan.", plan:"Growth", features:[] };
+
+  return (
+    <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="upgrade-modal">
+        <button onClick={onClose} style={{ position:"absolute",top:16,right:16,background:"var(--s3)",border:"1px solid var(--border2)",color:"var(--text3)",width:28,height:28,borderRadius:8,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:1 }}>✕</button>
+        <div style={{ position:"relative",zIndex:1 }}>
+          <div style={{ display:"inline-flex",alignItems:"center",gap:8,background:"rgba(245,158,11,0.12)",border:"1px solid rgba(245,158,11,0.3)",borderRadius:20,padding:"4px 12px",marginBottom:16 }}>
+            <span style={{ fontSize:11,fontWeight:700,color:"#F59E0B",letterSpacing:.5 }}>🔒 LOCKED FEATURE</span>
+          </div>
+          <div style={{ display:"flex",alignItems:"center",gap:14,marginBottom:16 }}>
+            <div style={{ width:52,height:52,borderRadius:14,background:"rgba(245,158,11,0.12)",border:"1px solid rgba(245,158,11,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0 }}>{d.icon}</div>
+            <div>
+              <div style={{ fontSize:22,fontWeight:900,color:"var(--text)",letterSpacing:-.5 }}>{feature}</div>
+              <div style={{ fontSize:12,color:"var(--text3)",marginTop:2 }}>Available on <span style={{color:"#F59E0B",fontWeight:700}}>{d.plan} Plan</span> & above</div>
+            </div>
+          </div>
+          <div style={{ fontSize:13,color:"var(--text2)",lineHeight:1.7,marginBottom:20 }}>{d.desc}</div>
+          <div style={{ marginBottom:24 }}>
+            <div style={{ fontSize:10,color:"var(--text3)",fontWeight:700,letterSpacing:1,marginBottom:10 }}>WHAT YOU'LL UNLOCK</div>
+            {d.features.map((f,i)=>(
+              <div key={i} className="upgrade-feature-row">
+                <div className="feat-icon" style={{ background:`rgba(62,207,142,0.1)`,border:`1px solid rgba(62,207,142,0.2)` }}>
+                  <span style={{ color:"var(--g)" }}>✓</span>
+                </div>
+                <span>{f}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:24 }}>
+            <div style={{ padding:"14px",borderRadius:12,background:"rgba(239,68,68,0.06)",border:"1px solid rgba(239,68,68,0.15)" }}>
+              <div style={{ fontSize:10,color:"#EF4444",fontWeight:700,letterSpacing:.5,marginBottom:6 }}>CURRENT · STARTER</div>
+              <div style={{ fontSize:20,fontWeight:900,color:"var(--text)" }}>₹999<span style={{ fontSize:11,fontWeight:400,color:"var(--text3)" }}>/mo</span></div>
+              <div style={{ fontSize:11,color:"var(--text3)",marginTop:4 }}>Basic features only</div>
+            </div>
+            <div style={{ padding:"14px",borderRadius:12,background:"rgba(62,207,142,0.06)",border:"1px solid rgba(62,207,142,0.25)" }}>
+              <div style={{ fontSize:10,color:"var(--g)",fontWeight:700,letterSpacing:.5,marginBottom:6 }}>UPGRADE TO · GROWTH</div>
+              <div style={{ fontSize:20,fontWeight:900,color:"var(--g)" }}>₹2,999<span style={{ fontSize:11,fontWeight:400,color:"var(--text3)" }}>/mo</span></div>
+              <div style={{ fontSize:11,color:"var(--text3)",marginTop:4 }}>All features unlocked</div>
+            </div>
+          </div>
+          <div style={{ display:"flex",gap:10 }}>
+            <button className="btn btn-upgrade" style={{ flex:1,padding:"13px",fontSize:14 }} onClick={()=>{ onClose(); onGoToPricing(); }}>
+              🚀 Upgrade Now — ₹2,999/mo
+            </button>
+          </div>
+          <div style={{ marginTop:12,textAlign:"center" }}>
+            <button onClick={()=>{ onClose(); onGoToPricing(); }} style={{ background:"none",border:"none",color:"var(--text3)",fontSize:12,cursor:"pointer",textDecoration:"underline" }}>
+              View all plans & compare features
+            </button>
+          </div>
+          <div style={{ marginTop:16,padding:"12px 14px",borderRadius:10,background:"rgba(59,130,246,0.06)",border:"1px solid rgba(59,130,246,0.15)",display:"flex",alignItems:"center",gap:10 }}>
+            <span style={{ fontSize:18 }}>💬</span>
+            <div>
+              <div style={{ fontSize:12,fontWeight:600,color:"var(--text)" }}>Need help choosing a plan?</div>
+              <div style={{ fontSize:11,color:"var(--text3)",marginTop:1 }}>Contact us at <span style={{color:"#3B82F6"}}>sales@hrpulse.io</span> · +91 98100 00000</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── GPS ─────────────────────────────────────────────────────────────────────
 function useGPS() {
@@ -453,7 +570,6 @@ function computeAnomalies(emps, allAtt) {
     if (dropPct>=30)    alerts.push({ id:`d_${e.id}`, emp:e.name, dept:e.dept, type:"Attendance Drop", detail:`${dropPct}% drop vs last 15 days`, severity:"medium",icon:"📉", color:"#3B82F6" });
   });
 
-  // Dept-level
   const depts = [...new Set(emps.map(e=>e.dept))];
   depts.forEach(dept=>{
     const dEmps = emps.filter(e=>e.dept===dept&&e.isActive);
@@ -476,7 +592,6 @@ function computePayroll(emp, attRecords, month, year) {
   const late       = recs.filter(r=>r.status==="late").length;
   const absent     = Math.max(0, workingDays - present - onLeave);
   const totalHours = recs.reduce((s,r)=>s+(r.work_minutes||0),0)/60;
-  // Salary slab by role
   const baseSalary = emp.role==="admin"?200000:emp.role==="manager"?120000:emp.role==="hr"?90000:75000;
   const perDay     = Math.round(baseSalary/22);
   const absentDeduction = absent*perDay;
@@ -498,18 +613,23 @@ function LoginPage({ onLogin, CSS }) {
     if(!email||!pw){setErr("Please enter both email and password.");return;}
     setLoading(true); setErr("");
     const r=await onLogin(email.trim(),pw);
-    if(r!==true) setErr(typeof r==="string"?r:"Invalid credentials.");
+    if(r!==true) {
+      // ✅ FIX: Show suspension message on login if company is suspended
+      if (typeof r === "string" && r.toLowerCase().includes("suspended")) {
+        setErr("🚫 " + r);
+      } else {
+        setErr(typeof r==="string"?r:"Invalid credentials.");
+      }
+    }
     setLoading(false);
   };
   const DEMOS=[["Admin","admin@hrpulse.io","Admin@123","#FB923C"],["HR","priya@hrpulse.io","Hr@12345","#8B5CF6"],["Employee","sneha@hrpulse.io","Emp@12345","#3ECF8E"]];
   return (
     <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"var(--bg)", position:"relative", overflow:"hidden" }}>
       <style>{CSS}</style>
-      {/* Ambient blobs */}
       <div style={{ position:"absolute", width:600, height:600, borderRadius:"50%", background:"radial-gradient(circle,rgba(62,207,142,0.05),transparent 70%)", top:"10%", left:"10%", pointerEvents:"none" }}/>
       <div style={{ position:"absolute", width:400, height:400, borderRadius:"50%", background:"radial-gradient(circle,rgba(59,130,246,0.06),transparent 70%)", bottom:"10%", right:"10%", pointerEvents:"none" }}/>
       <div style={{ width:440, position:"relative", zIndex:1 }} className="fu">
-        {/* Logo */}
         <div style={{ textAlign:"center", marginBottom:32 }}>
           <div style={{ display:"inline-flex", alignItems:"center", gap:12, marginBottom:10 }}>
             <div style={{ width:44, height:44, borderRadius:12, background:"linear-gradient(135deg,var(--g),var(--g2))", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, fontWeight:900, color:"#000" }}>H</div>
@@ -566,10 +686,8 @@ function OverviewPage({ user, isMgr, isAdmin, dash, todayRec, myLeaves, pending,
       <div className="g4" style={{ marginBottom:20 }}>
         {kpis.map((k,i)=><KPI key={i} {...k}/>)}
       </div>
-
       <div className="g2">
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-          {/* Clock card */}
           <div className="card" style={{ textAlign:"center", padding:28 }}>
             <div style={{ fontSize:9, color:"var(--text3)", letterSpacing:1.5, marginBottom:12 }}>TODAY'S ATTENDANCE</div>
             <Badge s={todayRec?.status||"absent"}/>
@@ -584,8 +702,6 @@ function OverviewPage({ user, isMgr, isAdmin, dash, todayRec, myLeaves, pending,
               {todayRec?.check_out&&<div style={{color:"var(--g)",fontWeight:700}}>✓ Day Complete · {fmtH(todayRec.work_minutes)}</div>}
             </div>
           </div>
-
-          {/* AI Anomaly Alerts */}
           {isMgr && anomalies.length>0 && (
             <div className="ai-card">
               <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
@@ -606,8 +722,6 @@ function OverviewPage({ user, isMgr, isAdmin, dash, todayRec, myLeaves, pending,
               {anomalies.length>4&&<div style={{fontSize:10,color:"var(--text3)",marginTop:8,textAlign:"center"}}>+{anomalies.length-4} more in AI Alerts page</div>}
             </div>
           )}
-
-          {/* Pending approvals */}
           {isMgr && pending.length>0 && (
             <div className="card">
               <div className="sect">Pending Approvals <span style={{fontSize:12,color:"var(--text3)",fontWeight:400}}>({pending.length})</span></div>
@@ -626,8 +740,6 @@ function OverviewPage({ user, isMgr, isAdmin, dash, todayRec, myLeaves, pending,
               ))}
             </div>
           )}
-
-          {/* Today breakdown */}
           {isMgr&&ta&&(
             <div className="card">
               <div className="sect">Today's Breakdown</div>
@@ -642,9 +754,7 @@ function OverviewPage({ user, isMgr, isAdmin, dash, todayRec, myLeaves, pending,
             </div>
           )}
         </div>
-
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-          {/* Announcements */}
           <div className="card">
             <div className="sect">Announcements</div>
             {anns.length===0&&<div style={{fontSize:12,color:"var(--text3)",textAlign:"center",padding:16}}>Nothing posted yet.</div>}
@@ -658,8 +768,6 @@ function OverviewPage({ user, isMgr, isAdmin, dash, todayRec, myLeaves, pending,
               </div>
             ))}
           </div>
-
-          {/* Dept distribution */}
           {isMgr&&(dash?.department_distribution||allEmps.length>0)&&(()=>{
             const dd = dash?.department_distribution || {};
             if(!Object.keys(dd).length) allEmps.filter(e=>e.isActive).forEach(e=>{ dd[e.dept]=(dd[e.dept]||0)+1; });
@@ -678,7 +786,6 @@ function OverviewPage({ user, isMgr, isAdmin, dash, todayRec, myLeaves, pending,
               </div>
             );
           })()}
-
           {!isMgr&&bals.filter(b=>b.total_days>0).length>0&&(
             <div className="card">
               <div className="sect">Leave Balance</div>
@@ -708,7 +815,6 @@ function AIAlertsPage({ allEmps, allAtt, analytics }) {
   const anomalies = computeAnomalies(allEmps, allAtt);
   const [filter, setFilter] = useState("all");
   const shown = filter==="all"?anomalies:anomalies.filter(a=>a.severity===filter);
-  const monthlyAttRate = analytics?.avg_hours_trend?.slice(-6).map(d=>({ date:d.date?.slice(5)||"", rate:d.attendance_rate||Math.floor(Math.random()*20+75) })) || [];
 
   return (
     <div className="fu">
@@ -746,13 +852,11 @@ function AIAlertsPage({ allEmps, allAtt, analytics }) {
           <div style={{ fontSize:11,color:"var(--text2)",marginTop:10 }}>Based on 30-day patterns</div>
         </div>
       </div>
-
       <div style={{ display:"flex",gap:6,marginBottom:14 }}>
         {["all","high","medium"].map(f=>(
           <button key={f} className={`tab ${filter===f?"on":""}`} onClick={()=>setFilter(f)} style={{ textTransform:"capitalize" }}>{f==="all"?"All Alerts":f+" Risk"}</button>
         ))}
       </div>
-
       {shown.length===0&&(
         <div className="card" style={{ textAlign:"center",padding:40 }}>
           <div style={{ fontSize:36,marginBottom:12 }}>✅</div>
@@ -760,7 +864,6 @@ function AIAlertsPage({ allEmps, allAtt, analytics }) {
           <div style={{ fontSize:12,color:"var(--text3)",marginTop:4 }}>Your team's attendance is healthy</div>
         </div>
       )}
-
       <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
         {shown.map(a=>(
           <div key={a.id} className="card" style={{ borderLeft:`3px solid ${a.color}` }}>
@@ -802,20 +905,16 @@ function PayrollPage({ allEmps, allAtt }) {
   const totalNet   = payrolls.reduce((s,p)=>s+p.net,0);
   const totalGross = payrolls.reduce((s,p)=>s+p.gross,0);
   const selData    = sel ? payrolls.find(p=>p.emp.id===sel) : null;
-
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
   return (
     <div className="fu">
-      {/* Summary KPIs */}
       <div className="g4" style={{ marginBottom:20 }}>
         <KPI label="Total Gross" val={`₹${Math.round(totalGross/100000).toFixed(1)}L`} pct={100} color="var(--g)" icon="💰"/>
         <KPI label="Net Payable" val={`₹${Math.round(totalNet/100000).toFixed(1)}L`} pct={Math.round(totalNet/totalGross*100)} color="#3B82F6" icon="✓"/>
         <KPI label="Total Deductions" val={`₹${Math.round((totalGross-totalNet)/1000)}K`} pct={Math.round((totalGross-totalNet)/totalGross*100)} color="#EF4444" icon="↓"/>
         <KPI label="Employees" val={payrolls.length} pct={100} color="#8B5CF6" icon="👥"/>
       </div>
-
-      {/* Controls */}
       <div style={{ display:"flex",gap:10,marginBottom:16,alignItems:"center",flexWrap:"wrap" }}>
         <input placeholder="Search employee..." value={search} onChange={e=>setSearch(e.target.value)} style={{ width:220 }}/>
         <select value={month} onChange={e=>setMonth(+e.target.value)} style={{ width:130 }}>
@@ -827,9 +926,7 @@ function PayrollPage({ allEmps, allAtt }) {
         <button className="btn btn-p" style={{ marginLeft:"auto" }} onClick={()=>toast.success("Payroll report exported!")}>⬇ Export CSV</button>
         <button className="btn btn-g" onClick={()=>toast.success("Payslips sent to all employees!")}>📧 Send Payslips</button>
       </div>
-
       <div className="g2">
-        {/* Table */}
         <div className="card" style={{ padding:0, overflow:"hidden" }}>
           <div style={{ padding:"16px 20px", borderBottom:"1px solid var(--border)" }}>
             <div style={{ fontWeight:700,fontSize:14 }}>Payroll · {monthNames[month-1]} {year}</div>
@@ -854,8 +951,6 @@ function PayrollPage({ allEmps, allAtt }) {
             <span style={{ fontSize:15,fontWeight:900,color:"var(--g)" }}>{rupee(totalNet)}</span>
           </div>
         </div>
-
-        {/* Payslip detail */}
         {selData ? (
           <div className="payroll-card">
             <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:20 }}>
@@ -867,7 +962,6 @@ function PayrollPage({ allEmps, allAtt }) {
               </div>
               <button className="btn btn-g" style={{ marginLeft:"auto",fontSize:11 }} onClick={()=>toast.success(`Payslip sent to ${selData.emp.email}!`)}>📧 Send</button>
             </div>
-
             <div style={{ fontSize:10,color:"var(--text3)",letterSpacing:1,marginBottom:10 }}>PAY PERIOD · {monthNames[month-1].toUpperCase()} {year}</div>
             <div style={{ display:"flex",gap:10,marginBottom:16 }}>
               {[["Working Days",selData.workingDays],["Present",selData.present],["Late",selData.late],["Absent",selData.absent]].map(([l,v])=>(
@@ -877,7 +971,6 @@ function PayrollPage({ allEmps, allAtt }) {
                 </div>
               ))}
             </div>
-
             <div style={{ fontSize:11,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>EARNINGS</div>
             {[["Basic Salary",selData.baseSalary],["HRA (40%)",selData.hra],["Travel Allowance",selData.ta]].map(([l,v])=>(
               <div key={l} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",fontSize:13 }}>
@@ -889,7 +982,6 @@ function PayrollPage({ allEmps, allAtt }) {
               <span style={{ color:"var(--text)" }}>Gross Salary</span>
               <span style={{ color:"var(--g)",fontFamily:"var(--mono)" }}>{rupee(selData.gross)}</span>
             </div>
-
             <Divider/>
             <div style={{ fontSize:11,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>DEDUCTIONS</div>
             {[["Provident Fund (12%)",selData.pf],["Income Tax (10%)",selData.tax],["Absent Deduction",selData.absentDeduction],["Late Deduction",selData.lateDeduction]].filter(([,v])=>v>0).map(([l,v])=>(
@@ -898,7 +990,6 @@ function PayrollPage({ allEmps, allAtt }) {
                 <span style={{ color:"#EF4444",fontFamily:"var(--mono)" }}>-{rupee(v)}</span>
               </div>
             ))}
-
             <Divider/>
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0" }}>
               <span style={{ fontWeight:800,fontSize:15,color:"var(--text)" }}>NET PAY</span>
@@ -935,7 +1026,6 @@ function WarRoomPage({ allEmps, allAtt }) {
 
   return (
     <div className="fu">
-      {/* Header */}
       <div style={{ background:"var(--s1)",border:"1px solid var(--border)",borderRadius:16,padding:"20px 24px",marginBottom:20,display:"flex",alignItems:"center",gap:20,flexWrap:"wrap" }}>
         <div>
           <div style={{ fontSize:10,color:"var(--text3)",letterSpacing:1.5,marginBottom:6 }}>LIVE WAR ROOM</div>
@@ -964,8 +1054,6 @@ function WarRoomPage({ allEmps, allAtt }) {
           </div>
         </div>
       </div>
-
-      {/* Dept summary */}
       <div className="g3" style={{ marginBottom:20 }}>
         {Object.entries(DEPT_COLORS).map(([dept,color])=>{
           const dEmps=empStatus.filter(e=>e.dept===dept);
@@ -982,8 +1070,6 @@ function WarRoomPage({ allEmps, allAtt }) {
           );
         }).filter(Boolean)}
       </div>
-
-      {/* Employee grid */}
       <div className="sect">All Employees — Real Time</div>
       <div className="warroom">
         {empStatus.map(e=>(
@@ -1043,8 +1129,6 @@ function OnboardingPage({ onComplete }) {
         <div style={{ fontSize:24,fontWeight:900,color:"var(--text)",letterSpacing:-.5 }}>Set up your <span style={{color:"var(--g)"}}>HRPulse</span> workspace</div>
         <div style={{ fontSize:13,color:"var(--text3)",marginTop:4 }}>Complete the setup to start managing your team</div>
       </div>
-
-      {/* Steps */}
       <div style={{ marginBottom:24 }}>
         {steps.map((st,i)=>(
           <div key={i} className={`ob-step ${st.done?"done":""}`} onClick={()=>setStep(i)} style={{ cursor:"pointer" }}>
@@ -1057,8 +1141,6 @@ function OnboardingPage({ onComplete }) {
           </div>
         ))}
       </div>
-
-      {/* Step content */}
       <div className="card">
         {step===0&&(
           <div>
@@ -1186,7 +1268,6 @@ function AnalyticsPage({ analytics, allAtt, allEmps }) {
   const deptData = Object.entries(a?.department_distribution||{}).map(([name,value])=>({name,value}));
   if(!deptData.length) allEmps.filter(e=>e.isActive).forEach(e=>{ const f=deptData.find(d=>d.name===e.dept); if(f)f.value++;else deptData.push({name:e.dept,value:1}); });
   const trend = (a?.trend_30_days||[]).slice(-14).map(t=>({date:t.date?.slice(5)||"",present:t.present,late:t.late}));
-  // Generate if empty
   if(!trend.length) {
     Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-13+i);const k=d.toISOString().split("T")[0];const recs=allAtt.filter(r=>r.date===k);trend.push({date:k.slice(5),present:recs.filter(r=>r.status==="present").length,late:recs.filter(r=>r.status==="late").length});});
   }
@@ -1211,14 +1292,14 @@ function AnalyticsPage({ analytics, allAtt, allEmps }) {
             <AreaChart data={trend} margin={{top:5,right:5,left:-25,bottom:0}}>
               <defs>
                 <linearGradient id="gp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3ECF8E" stopOpacity={.3}/><stop offset="95%" stopColor="#3ECF8E" stopOpacity={0}/></linearGradient>
-                <linearGradient id="gl" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#F59E0B" stopOpacity={.3}/><stop offset="95%" stopColor="#F59E0B" stopOpacity={0}/></linearGradient>
+                <linearGradient id="gl2" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#F59E0B" stopOpacity={.3}/><stop offset="95%" stopColor="#F59E0B" stopOpacity={0}/></linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)"/>
               <XAxis dataKey="date" tick={{fill:"var(--text3)",fontSize:10}} axisLine={false} tickLine={false}/>
               <YAxis tick={{fill:"var(--text3)",fontSize:10}} axisLine={false} tickLine={false}/>
               <Tooltip contentStyle={{background:"var(--s2)",border:"1px solid var(--border2)",borderRadius:10,fontSize:12}}/>
               <Area type="monotone" dataKey="present" stroke="#3ECF8E" strokeWidth={2} fill="url(#gp)" name="Present"/>
-              <Area type="monotone" dataKey="late"    stroke="#F59E0B" strokeWidth={2} fill="url(#gl)"  name="Late"/>
+              <Area type="monotone" dataKey="late"    stroke="#F59E0B" strokeWidth={2} fill="url(#gl2)"  name="Late"/>
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -1261,7 +1342,7 @@ function AnalyticsPage({ analytics, allAtt, allEmps }) {
 
 // ─── ATTENDANCE PAGE ──────────────────────────────────────────────────────────
 function AttPage({ isMgr, todayRec, att, mySum, onCheckIn, onCheckOut, busy, allAtt, allEmps }) {
-  const [date,setDate]=useState(todayStr()); const [filter,setFilter]=useState("all"); const [loading,setLoading]=useState(false); const [team,setTeam]=useState(null);
+  const [date,setDate]=useState(todayStr()); const [filter,setFilter]=useState("all"); const [team,setTeam]=useState(null);
   const last14=Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-13+i);const k=d.toISOString().split("T")[0];return{k,rec:att.find(r=>r.date===k),day:d.toLocaleDateString("en-IN",{weekday:"short"})};});
 
   useEffect(()=>{
@@ -1754,30 +1835,24 @@ function ModalHub({ modal, setModal, emps, ltypes, bals, user, depts, busy, appl
   return null;
 }
 
-
 // ─── PLATFORM ADMIN PAGE ──────────────────────────────────────────────────────
 function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo, companiesFromDB=[] }) {
-  // ── Plan definitions ──────────────────────────────────────────────────────
   const PLANS = {
     starter:    { name:"Starter",    price:"₹999/mo",   color:"#3B82F6", empLimit:10,  features:["GPS Attendance","Selfie Verify","Leave Management","Basic Reports","Email Support"], locked:["AI Alerts","Payroll","War Room","Analytics","QR Attendance"] },
     growth:     { name:"Growth",     price:"₹2,999/mo", color:"#3ECF8E", empLimit:100, features:["GPS Attendance","Selfie Verify","Leave Management","Basic Reports","Email Support","AI Alerts","Payroll Summary","War Room","Analytics Dashboard","Priority Support","QR Attendance"], locked:["Custom Integrations","SLA Guarantee","HRMS API Access","Biometric Integration"] },
     enterprise: { name:"Enterprise", price:"Custom",    color:"#FB923C", empLimit:9999,features:["Everything in Growth","Custom Integrations","SLA Guarantee","Dedicated Account Manager","On-premise Option","HRMS API Access","Biometric Integration"], locked:[] },
   };
 
-  // ── State ─────────────────────────────────────────────────────────────────
-  const [tab, setTab]           = useState("companies"); // companies | users
+  const [tab, setTab]           = useState("companies");
   const [search, setSearch]     = useState("");
   const [selRole, setSelRole]   = useState("all");
   const [editingId, setEditingId] = useState(null);
   const [editRole, setEditRole]   = useState("");
   const [busy, setBusy]           = useState(false);
   const [expandedCo, setExpandedCo] = useState(null);
-
-  // ── Build company list — prefer real DB data, fall back to allEmps grouping ──
   const [companyPlans, setCompanyPlans] = useState(()=>loadDemoState("companyPlans",{}));
   const [companyStatus, setCompanyStatus] = useState(()=>loadDemoState("companyStatus",{}));
 
-  // Group allEmps by company_id for employee lists
   const empsByCompany = allEmps.reduce((acc, e) => {
     const cid = e.company_id || "demo";
     if (!acc[cid]) acc[cid] = [];
@@ -1785,7 +1860,6 @@ function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo, comp
     return acc;
   }, {});
 
-  // Build companies from DB data if available, else from allEmps grouping
   const companies = companiesFromDB.length > 0
     ? companiesFromDB.map(co => ({
         id:     co.id,
@@ -1809,11 +1883,9 @@ function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo, comp
       );
 
   const changePlan = async (coId, newPlan) => {
-    // Save locally always
     const updated = {...companyPlans, [coId]: newPlan};
     setCompanyPlans(updated);
     saveDemoState("companyPlans", updated);
-    // Also save to DB if live
     if (!useDemo) {
       try { await api.patch(`/companies/${coId}/plan`, { plan: newPlan }); } catch {}
     }
@@ -1830,7 +1902,6 @@ function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo, comp
     toast.success(active ? "Company activated!" : "Company suspended!");
   };
 
-  // ── Users tab ─────────────────────────────────────────────────────────────
   const filtered = allEmps.filter(e =>
     (selRole === "all" || e.role === selRole) &&
     ((e.name||"").toLowerCase().includes(search.toLowerCase()) || (e.email||"").toLowerCase().includes(search.toLowerCase()))
@@ -1847,7 +1918,6 @@ function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo, comp
   const ALL_ROLES = ["employee","manager","hr","admin","super_admin"];
   const PLAN_COLORS = { starter:"#3B82F6", growth:"#3ECF8E", enterprise:"#FB923C" };
 
-  // ── Stats ─────────────────────────────────────────────────────────────────
   const totalEmps    = allEmps.length;
   const totalCos     = companies.length;
   const activeCos    = companies.filter(c=>c.active).length;
@@ -1855,14 +1925,11 @@ function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo, comp
 
   return (
     <div>
-      {/* Header */}
       <div style={{ marginBottom:20 }}>
         <div style={{ fontSize:22,fontWeight:800,color:"var(--text)",letterSpacing:-.5 }}>🛡 Platform Admin</div>
         <div style={{ fontSize:12,color:"var(--text3)",marginTop:3 }}>Full platform control — manage companies, plans, and users.</div>
         {useDemo&&<div style={{ marginTop:8,padding:"7px 14px",background:"#F59E0B22",border:"1px solid #F59E0B55",borderRadius:8,fontSize:12,color:"#F59E0B" }}>⚠ Demo mode — all changes saved locally and persist on refresh.</div>}
       </div>
-
-      {/* Stats row */}
       <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12,marginBottom:22 }}>
         {[
           { label:"Total Companies", val:totalCos,  icon:"🏢", color:"#8B5CF6" },
@@ -1879,15 +1946,11 @@ function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo, comp
           </div>
         ))}
       </div>
-
-      {/* Tabs */}
       <div style={{ display:"flex",gap:8,marginBottom:18 }}>
         {[["companies","🏢 Companies"],["users","👥 Users"]].map(([t,l])=>(
           <button key={t} onClick={()=>setTab(t)} style={{ padding:"7px 18px",borderRadius:8,border:"1px solid var(--border2)",background:tab===t?"var(--g)":"var(--s2)",color:tab===t?"#000":"var(--text)",fontWeight:tab===t?700:400,fontSize:13,cursor:"pointer" }}>{l}</button>
         ))}
       </div>
-
-      {/* ── COMPANIES TAB ── */}
       {tab==="companies"&&(
         <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
           {companies.map(co=>{
@@ -1897,7 +1960,6 @@ function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo, comp
             const empPct = Math.min(100, Math.round((co.emps.length/plan.empLimit)*100));
             return (
               <div key={co.id} style={{ background:"var(--s2)",border:`1px solid ${co.active?"var(--border2)":"#EF444444"}`,borderRadius:14,overflow:"hidden" }}>
-                {/* Company header */}
                 <div style={{ padding:"14px 18px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap" }}>
                   <div style={{ width:42,height:42,borderRadius:10,background:PLAN_COLORS[co.plan]+"22",border:`1px solid ${PLAN_COLORS[co.plan]}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>🏢</div>
                   <div style={{ flex:1,minWidth:0 }}>
@@ -1909,29 +1971,22 @@ function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo, comp
                     <div style={{ fontSize:11,color:"var(--text3)",marginTop:3 }}>
                       Admin: <span style={{color:"var(--text)"}}>{co.adminName||adminEmp?.name||"—"}</span> · {co.empCount||co.emps.length}/{plan.empLimit===9999?"∞":plan.empLimit} employees · {plan.price} · <span style={{color:"var(--text3)"}}>{co.industry||""}</span>
                     </div>
-                    {/* Employee usage bar */}
                     <div style={{ marginTop:6,height:4,background:"var(--s3)",borderRadius:4,width:"100%",maxWidth:200 }}>
                       <div style={{ height:4,borderRadius:4,background:empPct>90?"#EF4444":empPct>70?"#F59E0B":PLAN_COLORS[co.plan],width:empPct+"%",transition:"width .3s" }}/>
                     </div>
                   </div>
                   <div style={{ display:"flex",gap:8,alignItems:"center",flexShrink:0 }}>
-                    {/* Plan selector */}
                     <select value={co.plan} onChange={e=>changePlan(co.id,e.target.value)} style={{ padding:"5px 10px",background:"var(--s3)",border:"1px solid var(--border2)",borderRadius:8,color:"var(--text)",fontSize:12,cursor:"pointer" }}>
                       <option value="starter">Starter — ₹999</option>
                       <option value="growth">Growth — ₹2,999</option>
                       <option value="enterprise">Enterprise — Custom</option>
                     </select>
-                    {/* Suspend/Activate */}
                     <button onClick={()=>toggleCompany(co.id,!co.active)} style={{ padding:"5px 12px",borderRadius:8,border:"none",background:co.active?"#EF444422":"#3ECF8E22",color:co.active?"#EF4444":"#3ECF8E",fontSize:12,fontWeight:600,cursor:"pointer" }}>{co.active?"Suspend":"Activate"}</button>
-                    {/* Expand */}
                     <button onClick={()=>setExpandedCo(isExpanded?null:co.id)} style={{ padding:"5px 12px",borderRadius:8,border:"1px solid var(--border2)",background:"var(--s3)",color:"var(--text)",fontSize:12,cursor:"pointer" }}>{isExpanded?"▲ Hide":"▼ Details"}</button>
                   </div>
                 </div>
-
-                {/* Expanded details */}
                 {isExpanded&&(
                   <div style={{ borderTop:"1px solid var(--border)",padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
-                    {/* Features included */}
                     <div>
                       <div style={{ fontSize:11,fontWeight:700,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>✅ INCLUDED FEATURES</div>
                       {plan.features.map(f=>(
@@ -1940,7 +1995,6 @@ function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo, comp
                         </div>
                       ))}
                     </div>
-                    {/* Locked features */}
                     <div>
                       {plan.locked.length>0&&<>
                         <div style={{ fontSize:11,fontWeight:700,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>🔒 LOCKED (upgrade to unlock)</div>
@@ -1950,9 +2004,9 @@ function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo, comp
                           </div>
                         ))}
                       </>}
-                      {/* Employees list */}
                       <div style={{ marginTop:plan.locked.length?16:0 }}>
                         <div style={{ fontSize:11,fontWeight:700,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>👥 EMPLOYEES ({co.emps.length})</div>
+                        const { gps, getLocation } = useGPS();
                         <div style={{ maxHeight:160,overflowY:"auto",display:"flex",flexDirection:"column",gap:4 }}>
                           {co.emps.map(e=>(
                             <div key={e.id} style={{ display:"flex",alignItems:"center",gap:8,padding:"4px 8px",background:"var(--s3)",borderRadius:7 }}>
@@ -1971,8 +2025,6 @@ function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo, comp
           })}
         </div>
       )}
-
-      {/* ── USERS TAB ── */}
       {tab==="users"&&(
         <div>
           <div style={{ display:"flex",gap:10,marginBottom:14,flexWrap:"wrap" }}>
@@ -2036,6 +2088,12 @@ export default function App() {
   const [allEmps,setAllEmps]=useState(()=>loadDemoState("allEmps",SEED_EMPLOYEES.map(eNorm)));
   const [companies,setCompanies]=useState([]);
   const [useDemo,setUseDemo]=useState(false);
+
+  // ✅ FIX: Real-time suspension state (set by boot check + loadAll)
+  const [companySuspended, setCompanySuspended] = useState(false);
+
+  const [upgradeModal, setUpgradeModal] = useState(null);
+
   const [tasks,setTasks]   = useState([
     { id:"t1",empId:"e4",title:"Migrate auth to JWT v2",  deadline:"2026-06-15",priority:"high",  progress:65,at:Date.now()-86400000 },
     { id:"t2",empId:"e5",title:"Q2 Sales Review Deck",    deadline:"2026-06-01",priority:"high",  progress:30,at:Date.now()-172800000 },
@@ -2049,19 +2107,49 @@ export default function App() {
     { id:"a3",title:"Q2 Appraisal Cycle Begins",body:"Performance reviews for Q2 will start May 15. Managers please complete KPI inputs by May 20.",tag:"HR",urgent:false,author:"Priya Sharma",at:Date.now()-172800000 },
   ]);
 
+  const socketRef = useRef(null);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const SOCKET_URL = (import.meta.env.VITE_API_URL || "http://localhost:4000/api/v1").replace("/api/v1", "");
+    const socket = io(SOCKET_URL, { auth: { token: _at }, query: { companyId: user.company_id || "demo" }, transports: ["websocket"] });
+    socketRef.current = socket;
+    socket.on("subscription:updated", (data) => {
+      if (data.plan) { const planName = data.plan.name?.toLowerCase() || "growth"; setUser(prev => prev ? { ...prev, plan: planName } : prev); toast.success(`Your plan has been updated to ${data.plan.display_name || data.plan.name}!`); }
+      const status = data.status || data.subscription?.status;
+      if (status) { const suspended = status === "suspended" || status === "cancelled"; setCompanySuspended(suspended); if (suspended) toast.error("Your account has been suspended by the administrator."); else toast.success("Your account has been reactivated!"); }
+    });
+    return () => { socket.disconnect(); socketRef.current = null; };
+  }, [user?.id]);
   const { gps, getLocation } = useGPS();
   useEffect(()=>{const id=setInterval(()=>setClock(new Date()),1000);return()=>clearInterval(id);},[]);
 
-  // Boot — try real API, fall back to demo
+  // ✅ FIX: Boot — check suspension + fresh plan from DB immediately
   useEffect(()=>{
     (async()=>{
       if (_at) {
         try {
           const { user:u } = await api.get("/auth/me");
           setUser(eNorm(u));
-        } catch {
-          clearTokens();
-          // Fall through to demo mode
+          // Check suspension for non-super-admins
+          if (u?.company_id && u?.role !== "super_admin") {
+            // plan is already fresh from /auth/me (we fixed that endpoint)
+            if (u?.plan) setUser(prev => prev ? {...prev, plan: u.plan} : prev);
+          }
+        } catch(err) {
+          // ✅ FIX: 403 with suspended flag — show suspension screen
+          if (err?.suspended || err?.message?.toLowerCase?.().includes("suspended")) {
+            // Try to get user info to show their name before clearing
+            setCompanySuspended(true);
+            // Still set a minimal user so suspension screen can show logout
+            try {
+              // We can't get /me if suspended, so just set a placeholder
+              const stored = localStorage.getItem("hp_user");
+              if (stored) setUser(JSON.parse(stored));
+            } catch {}
+          } else {
+            clearTokens();
+          }
         }
       }
       setBoot(false);
@@ -2075,6 +2163,22 @@ export default function App() {
   useEffect(()=>{ if(user) loadAll(); },[user?.id]);
 
   async function loadAll() {
+    // ✅ FIX: Always re-check suspension + fresh plan on every data reload (not just boot)
+    if (!useDemo && _at && user?.company_id && user?.role !== "super_admin") {
+      try {
+        const freshMe = await api.get("/auth/me");
+        setCompanySuspended(false);
+        // Update plan in user state if changed by super admin
+        if (freshMe?.user?.plan) {
+          setUser(prev => prev ? {...prev, plan: freshMe.user.plan} : prev);
+        }
+      } catch(e) {
+        if (e?.suspended || e?.message?.toLowerCase?.().includes("suspended")) {
+          setCompanySuspended(true);
+          return; // stop loading data if suspended
+        }
+      }
+    }
     try {
       const [dData,aData,sData]=await Promise.all([
         api.get(isMgr?"/dashboard/admin":"/dashboard/me").catch(()=>null),
@@ -2102,12 +2206,10 @@ export default function App() {
         setAn(anal);
         if(isSuperAdmin&&coData.companies?.length) setCompanies(coData.companies);
       }
-    } catch { /* API not running, demo data used */ }
+    } catch {}
   }
 
-  // ── Auth ─────────────────────────────────────────────────────────────────
   const login=async(email,pw)=>{
-    // Try real API first
     const DEMO_EMAILS=["admin@hrpulse.io","priya@hrpulse.io","sneha@hrpulse.io","rohan@hrpulse.io"];
     const isDemo=DEMO_EMAILS.includes(email.toLowerCase().trim());
     try {
@@ -2115,22 +2217,16 @@ export default function App() {
       saveTokens(d.access_token,d.refresh_token);
       setUser(eNorm(d.user)); setNav("Overview"); return true;
     } catch(apiErr) {
-      // If this is NOT a network error (i.e. the backend responded with 401/403),
-      // return the real error for real users. Only fall through to demo for demo emails
-      // or if the backend is completely unreachable (network error).
+      // ✅ FIX: Handle suspended company at login
+      if (apiErr?.suspended) {
+        return "Your company account has been suspended. Please contact support.";
+      }
+      if (apiErr?.status === 403) {
+        return apiErr.message || "Access denied.";
+      }
       const isNetworkErr = apiErr.message && apiErr.message.includes("Network error");
-      if (!isNetworkErr && !isDemo) {
-        return apiErr.message || "Invalid email or password";
-      }
-      if (!isNetworkErr && isDemo) {
-        // backend said invalid creds for demo email — fall through to hardcoded demo
-      }
-      if (!isDemo) {
-        // Real user, network error
-        return "Cannot reach server. Please check your connection or try again.";
-      }
+      if (!isNetworkErr && !isDemo) return apiErr.message || "Invalid email or password";
     }
-    // Demo fallback (only reached for demo emails or network errors on demo emails)
     const DEMO_CREDS=[["admin@hrpulse.io","Admin@123","e1"],["priya@hrpulse.io","Hr@12345","e2"],["sneha@hrpulse.io","Emp@12345","e4"],["rohan@hrpulse.io","Manager@123","e3"]];
     const found=DEMO_CREDS.find(([e,p])=>e===email&&p===pw);
     if (found) {
@@ -2149,12 +2245,15 @@ export default function App() {
     }
     return "Invalid credentials. Try the demo buttons below.";
   };
+
   const logout=async()=>{
     await api.post("/auth/logout",{refresh_token:_rt}).catch(()=>{});
-    clearTokens(); clearDemoState(); setUser(null); setEmps([]); setLeaves([]); setDash(null); setUseDemo(false); setAllEmps(SEED_EMPLOYEES.map(eNorm));
+    clearTokens(); clearDemoState();
+    setUser(null); setEmps([]); setLeaves([]); setDash(null);
+    setUseDemo(false); setAllEmps(SEED_EMPLOYEES.map(eNorm));
+    setCompanySuspended(false); // ✅ FIX: reset suspension state on logout
   };
 
-  // ── Clock In/Out ──────────────────────────────────────────────────────────
   const checkIn=async(selfie=null)=>{
     setBusy(true);
     try {
@@ -2194,7 +2293,6 @@ export default function App() {
   const handleCheckIn  = ()=>setModal({type:"selfie",action:"in"});
   const handleCheckOut = ()=>setModal({type:"selfie",action:"out"});
 
-  // ── Leave ─────────────────────────────────────────────────────────────────
   const applyLeave=async(ltId,from,to,reason)=>{
     setBusy(true);
     try {
@@ -2221,7 +2319,6 @@ export default function App() {
     setBusy(false);
   };
 
-  // ── Employees ─────────────────────────────────────────────────────────────
   const addEmp=async(f)=>{
     setBusy(true);
     try {
@@ -2251,7 +2348,6 @@ export default function App() {
     setBusy(false);
   };
 
-  // ── Tasks & Announcements ─────────────────────────────────────────────────
   const addTask =(eId,title,dl,pri)=>{setTasks(p=>[...p,{id:`t${Date.now()}`,empId:eId,title,deadline:dl,priority:pri,progress:0,at:Date.now()}]);toast.success("Task assigned!");setModal(null);};
   const updProg =(id,v)=>{setTasks(p=>p.map(t=>t.id===id?{...t,progress:v}:t));toast.success("Progress updated!");};
   const addAnn  =(title,body,tag,urgent)=>{setAnns(p=>[{id:`a${Date.now()}`,title,body,tag,urgent:!!urgent,author:user?.name||"Admin",at:Date.now()},...p]);toast.success("Posted!");setModal(null);};
@@ -2263,10 +2359,17 @@ export default function App() {
   const pending  = leaves.filter(l=>l.status==="pending");
   const depts    = Object.keys(DEPT_COLORS);
 
-  // ── Plan & suspension enforcement (reads localStorage fresh every render) ──
   const userCompanyId = user?.company_id || "demo";
-  const userPlan      = loadDemoState("companyPlans",{})[userCompanyId] || "growth";
-  const isCompanySuspended = !isSuperAdmin && loadDemoState("companyStatus",{})[userCompanyId] === false;
+
+  // ✅ FIX: Prefer fresh plan from user.plan (set by loadAll from DB), fallback to demo storage
+  const userPlan = user?.plan?.name || user?.plan || loadDemoState("companyPlans",{})[userCompanyId] || "growth";
+
+  // ✅ FIX: Real-time suspension — uses state (set from backend) + demo local storage fallback
+  const isCompanySuspended = !isSuperAdmin && (
+    companySuspended ||
+    (useDemo && loadDemoState("companyStatus",{})[userCompanyId] === false)
+  );
+
   const PLAN_FEATURES = {
     starter:    { payroll:false, aiAlerts:false, warRoom:false, analytics:false },
     growth:     { payroll:true,  aiAlerts:true,  warRoom:true,  analytics:true  },
@@ -2277,14 +2380,16 @@ export default function App() {
   const NAV_LINKS = isSuperAdmin
     ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Platform Admin","My Profile"]
     : isAdmin
-    ? ["Overview",...(planF.analytics?["Analytics"]:[]),...(planF.aiAlerts?["AI Alerts"]:[]),...(planF.warRoom?["War Room"]:[]),"Attendance","Employees","Leave",...(planF.payroll?["Payroll"]:[]),"Performance","Announcements","Reports","Onboarding","Pricing","My Profile"]
+    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","My Profile"]
     : isMgr
-    ? ["Overview",...(planF.analytics?["Analytics"]:[]),...(planF.aiAlerts?["AI Alerts"]:[]),...(planF.warRoom?["War Room"]:[]),"Attendance","Employees","Leave","Performance","Announcements","My Profile"]
+    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Performance","Announcements","My Profile"]
     : ["Overview","My Attendance","Apply Leave","Announcements","My Profile"];
 
   const ICONS = { Overview:"◈",Analytics:"📊","AI Alerts":"🤖","War Room":"🎯",Attendance:"◷","My Attendance":"◷",Employees:"⊛",Leave:"◇","Apply Leave":"◇",Payroll:"💳",Performance:"◉",Announcements:"📢",Reports:"◎",Onboarding:"🚀",Pricing:"💰","Platform Admin":"🛡","My Profile":"◐" };
-  // Features locked on current plan (shown grayed out with lock icon)
-  const LOCKED_BY_PLAN = !isSuperAdmin && userPlan==="starter" ? ["Analytics","AI Alerts","War Room","Payroll"] : [];
+
+  const LOCKED_BY_PLAN = !isSuperAdmin && userPlan==="starter"
+    ? ["Analytics","AI Alerts","War Room","Payroll"]
+    : [];
 
   if (boot) return (
     <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)" }}>
@@ -2295,13 +2400,21 @@ export default function App() {
     </div>
   );
 
+  // ✅ FIX: Suspension screen — shown before login screen, blocks all access
   if (user && isCompanySuspended) return (
     <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)",textAlign:"center",padding:24 }}>
       <style>{CSS}</style>
-      <div style={{ fontSize:48 }}>🚫</div>
-      <div style={{ fontSize:24,fontWeight:900,color:"#EF4444",letterSpacing:-.5 }}>Account Suspended</div>
-      <div style={{ fontSize:14,color:"var(--text3)",maxWidth:380,lineHeight:1.6 }}>Your company account has been suspended by the platform administrator. Please contact support to resolve this.</div>
-      <button className="btn btn-g" style={{ marginTop:8,padding:"10px 24px" }} onClick={logout}>Sign Out</button>
+      <div style={{ fontSize:64,marginBottom:8 }}>🚫</div>
+      <div style={{ fontSize:28,fontWeight:900,color:"#EF4444",letterSpacing:-.5 }}>Account Suspended</div>
+      <div style={{ fontSize:14,color:"var(--text2)",maxWidth:420,lineHeight:1.7,marginTop:4 }}>
+        Your company account has been suspended by the platform administrator.<br/>
+        Please contact support to resolve this.
+      </div>
+      <div style={{ marginTop:8,padding:"12px 20px",background:"rgba(239,68,68,0.06)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:12,fontSize:13,color:"var(--text2)" }}>
+        📧 <a href="mailto:support@hrpulse.io" style={{color:"#3B82F6",textDecoration:"none"}}>support@hrpulse.io</a>
+        &nbsp;·&nbsp; 📞 +91 98100 00000
+      </div>
+      <button className="btn btn-g" style={{ marginTop:12,padding:"10px 28px",fontSize:13 }} onClick={logout}>← Sign Out</button>
     </div>
   );
 
@@ -2312,7 +2425,14 @@ export default function App() {
       <style>{CSS}</style>
       <Toaster position="top-right" toastOptions={{ style:{ background:"var(--s2)",color:"var(--text)",border:"1px solid var(--border2)",fontSize:13,borderRadius:12 } }}/>
 
-      {/* Modal */}
+      {upgradeModal && (
+        <UpgradeModal
+          feature={upgradeModal}
+          onClose={()=>setUpgradeModal(null)}
+          onGoToPricing={()=>{ setUpgradeModal(null); setNav("Pricing"); }}
+        />
+      )}
+
       {modal&&(
         <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
           <div className="modal">
@@ -2324,7 +2444,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Sidebar */}
       <aside className="sidebar">
         <div style={{ padding:"0 6px 18px",borderBottom:"1px solid var(--border)",marginBottom:6 }}>
           <div style={{ fontSize:22,fontWeight:900,color:"#fff",letterSpacing:-1 }}><span style={{color:"var(--g)"}}>HR</span>Pulse</div>
@@ -2333,15 +2452,44 @@ export default function App() {
             <span className="ldot"/>
             <span style={{ fontSize:10,color:"var(--g)",fontWeight:600 }}>{useDemo?"Demo Mode":"Live"}</span>
           </div>
+          {/* ✅ FIX: Show current plan in sidebar so user sees it update */}
+          {!isSuperAdmin && (
+            <div style={{ marginTop:6,fontSize:9,color:"var(--text3)",letterSpacing:.5 }}>
+              Plan: <span style={{ color: userPlan==="enterprise"?"#FB923C":userPlan==="growth"?"var(--g)":"#3B82F6", fontWeight:700, textTransform:"uppercase" }}>{userPlan}</span>
+            </div>
+          )}
         </div>
-        {NAV_LINKS.map(n=>(
-          <div key={n} className={`nav ${nav===n?"on":""}`} onClick={()=>!LOCKED_BY_PLAN.includes(n)&&setNav(n)} style={{ opacity:LOCKED_BY_PLAN.includes(n)?0.4:1, cursor:LOCKED_BY_PLAN.includes(n)?"not-allowed":"pointer" }}>
-            <span style={{ fontSize:12,flexShrink:0 }}>{LOCKED_BY_PLAN.includes(n)?"🔒":ICONS[n]||"·"}</span>
-            <span style={{ overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{n}{LOCKED_BY_PLAN.includes(n)?" (Upgrade)":""}</span>
-            {n==="Leave"&&pending.length>0&&<span style={{ marginLeft:"auto",background:"#EF4444",color:"#fff",borderRadius:10,fontSize:9,fontWeight:700,padding:"1px 6px",flexShrink:0 }}>{pending.length}</span>}
-            {n==="AI Alerts"&&computeAnomalies(allEmps,allAtt).filter(a=>a.severity==="high").length>0&&<span style={{ marginLeft:"auto",background:"#F59E0B",color:"#000",borderRadius:10,fontSize:9,fontWeight:700,padding:"1px 6px",flexShrink:0 }}>{computeAnomalies(allEmps,allAtt).filter(a=>a.severity==="high").length}</span>}
-          </div>
-        ))}
+
+        {NAV_LINKS.map(n=>{
+          const isLocked = LOCKED_BY_PLAN.includes(n);
+          const isActive = nav===n;
+          return (
+            <div
+              key={n}
+              className={`nav${isActive?" on":""}${isLocked?" locked-nav":""}`}
+              onClick={()=>{
+                if (isLocked) { setUpgradeModal(n); } else { setNav(n); }
+              }}
+            >
+              <span style={{ fontSize:12, flexShrink:0 }}>
+                {isLocked ? "🔒" : (ICONS[n]||"·")}
+              </span>
+              <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1, color: isLocked ? "var(--text3)" : undefined }}>
+                {n}
+              </span>
+              {isLocked && (
+                <span style={{ fontSize:9,fontWeight:700,padding:"1px 6px",borderRadius:10,background:"rgba(245,158,11,0.15)",color:"#F59E0B",border:"1px solid rgba(245,158,11,0.3)",flexShrink:0 }}>PRO</span>
+              )}
+              {!isLocked && n==="Leave" && pending.length>0 && (
+                <span style={{ marginLeft:"auto",background:"#EF4444",color:"#fff",borderRadius:10,fontSize:9,fontWeight:700,padding:"1px 6px",flexShrink:0 }}>{pending.length}</span>
+              )}
+              {!isLocked && n==="AI Alerts" && computeAnomalies(allEmps,allAtt).filter(a=>a.severity==="high").length>0 && (
+                <span style={{ marginLeft:"auto",background:"#F59E0B",color:"#000",borderRadius:10,fontSize:9,fontWeight:700,padding:"1px 6px",flexShrink:0 }}>{computeAnomalies(allEmps,allAtt).filter(a=>a.severity==="high").length}</span>
+              )}
+            </div>
+          );
+        })}
+
         <div style={{ marginTop:"auto",padding:"14px 6px 0",borderTop:"1px solid var(--border)" }}>
           <div style={{ display:"flex",alignItems:"center",gap:9,marginBottom:10 }}>
             <Av emp={user} size={32}/>
@@ -2354,9 +2502,7 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Main */}
       <main style={{ flex:1,overflowY:"auto",padding:"26px 28px" }}>
-        {/* Top bar */}
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24,flexWrap:"wrap",gap:12 }}>
           <div>
             <div style={{ fontSize:24,fontWeight:900,color:"var(--text)",letterSpacing:-.5 }}>{nav}</div>
@@ -2373,7 +2519,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Pages */}
         {nav==="Overview"     &&<OverviewPage  user={user} isMgr={isMgr} isAdmin={isAdmin} dash={dash} todayRec={todayRec} myLeaves={myLeaves} pending={pending} reviewLeave={reviewLeave} setModal={setModal} mySum={mySum} anns={anns} busy={busy} onCheckIn={handleCheckIn} onCheckOut={handleCheckOut} bals={bals} allAtt={allAtt} allEmps={allEmps}/>}
         {nav==="Analytics"    &&<AnalyticsPage analytics={analytics} allAtt={allAtt} allEmps={allEmps}/>}
         {nav==="AI Alerts"    &&<AIAlertsPage  allEmps={allEmps} allAtt={allAtt} analytics={analytics}/>}
