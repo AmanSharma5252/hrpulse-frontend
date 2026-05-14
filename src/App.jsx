@@ -144,7 +144,7 @@ const fmtD  = iso => iso ? new Date(iso).toLocaleDateString("en-IN",{day:"numeri
 const fmtH  = m   => m ? `${Math.floor(m/60)}h ${m%60}m` : "—";
 const fmtAgo= ms  => { const s=Math.floor((Date.now()-ms)/1000); if(s<60)return"just now"; if(s<3600)return`${Math.floor(s/60)}m ago`; if(s<86400)return`${Math.floor(s/3600)}h ago`; return`${Math.floor(s/86400)}d ago`; };
 const rupee = n => `₹${Number(n).toLocaleString("en-IN")}`;
-const eNorm = e=>({ id:e.id, code:e.employee_code, name:e.name, email:e.email, role:e.role, dept:e.department, title:e.title||"", phone:e.phone||"", emergency:e.emergency_contact||"", avatar:e.avatar_initials||e.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase(), hireDate:e.hire_date||"", isActive:e.is_active });
+const eNorm = e=>{ const n=e.name||e.full_name||e.email||"?"; return { id:e.id, code:e.employee_code, name:n, email:e.email||"", role:e.role||"employee", dept:e.department||"", title:e.title||"", phone:e.phone||"", emergency:e.emergency_contact||"", avatar:e.avatar_initials||(n&&n!="?"?n.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase():"?"), hireDate:e.hire_date||"", isActive:e.is_active??true }; };
 const lNorm = l=>({ id:l.id, empId:l.employee_id, empName:l.employee?.name||"", deptName:l.employee?.department||"", avatar:l.employee?.avatar_initials||"?", type:l.leave_type?.name||"Leave", from:l.start_date, to:l.end_date, days:l.total_days, reason:l.reason||"", status:l.status, reviewer:l.reviewer?.name||"", reviewNote:l.review_note||"", at:new Date(l.created_at).getTime() });
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
