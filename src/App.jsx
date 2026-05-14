@@ -2290,6 +2290,7 @@ export default function App() {
         const loc=await getLocation();
         const body = { latitude:loc.lat, longitude:loc.lng, selfie_base64:selfie };
         if (earlyReason) body.early_checkout_reason = earlyReason;
+        console.log("CHECKOUT BODY:", JSON.stringify(body));
         let d;
         try {
           d = await api.post("/attendance/checkout", body);
