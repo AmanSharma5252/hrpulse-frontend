@@ -2230,10 +2230,10 @@ export default function App() {
   const pending  = leaves.filter(l=>l.status==="pending");
   const depts    = Object.keys(DEPT_COLORS);
 
-  // Plan-based feature locking
-  const userPlan = (() => {
-    try { const p=loadDemoState("companyPlans",{}); return p[user?.company_id||"demo"]||"growth"; } catch { return "growth"; }
-  })();
+  // ── Plan & suspension enforcement (reads localStorage fresh every render) ──
+  const userCompanyId = user?.company_id || "demo";
+  const userPlan      = loadDemoState("companyPlans",{})[userCompanyId] || "growth";
+  const isCompanySuspended = !isSuperAdmin && loadDemoState("companyStatus",{})[userCompanyId] === false;
   const PLAN_FEATURES = {
     starter:    { payroll:false, aiAlerts:false, warRoom:false, analytics:false },
     growth:     { payroll:true,  aiAlerts:true,  warRoom:true,  analytics:true  },
@@ -2250,6 +2250,8 @@ export default function App() {
     : ["Overview","My Attendance","Apply Leave","Announcements","My Profile"];
 
   const ICONS = { Overview:"◈",Analytics:"📊","AI Alerts":"🤖","War Room":"🎯",Attendance:"◷","My Attendance":"◷",Employees:"⊛",Leave:"◇","Apply Leave":"◇",Payroll:"💳",Performance:"◉",Announcements:"📢",Reports:"◎",Onboarding:"🚀",Pricing:"💰","Platform Admin":"🛡","My Profile":"◐" };
+  // Features locked on current plan (shown grayed out with lock icon)
+  const LOCKED_BY_PLAN = !isSuperAdmin && userPlan==="starter" ? ["Analytics","AI Alerts","War Room","Payroll"] : [];
 
   if (boot) return (
     <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)" }}>
@@ -2257,6 +2259,16 @@ export default function App() {
       <div style={{ fontSize:36,fontWeight:900,color:"#fff",letterSpacing:-1.5 }}><span style={{color:"var(--g)"}}>HR</span>Pulse</div>
       <Spin lg/>
       <div style={{ fontSize:11,color:"var(--text3)",letterSpacing:.5 }}>Initialising v3.0...</div>
+    </div>
+  );
+
+  if (user && isCompanySuspended) return (
+    <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)",textAlign:"center",padding:24 }}>
+      <style>{CSS}</style>
+      <div style={{ fontSize:48 }}>🚫</div>
+      <div style={{ fontSize:24,fontWeight:900,color:"#EF4444",letterSpacing:-.5 }}>Account Suspended</div>
+      <div style={{ fontSize:14,color:"var(--text3)",maxWidth:380,lineHeight:1.6 }}>Your company account has been suspended by the platform administrator. Please contact support to resolve this.</div>
+      <button className="btn btn-g" style={{ marginTop:8,padding:"10px 24px" }} onClick={logout}>Sign Out</button>
     </div>
   );
 
@@ -2290,9 +2302,9 @@ export default function App() {
           </div>
         </div>
         {NAV_LINKS.map(n=>(
-          <div key={n} className={`nav ${nav===n?"on":""}`} onClick={()=>setNav(n)}>
-            <span style={{ fontSize:12,flexShrink:0 }}>{ICONS[n]||"·"}</span>
-            <span style={{ overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{n}</span>
+          <div key={n} className={`nav ${nav===n?"on":""}`} onClick={()=>!LOCKED_BY_PLAN.includes(n)&&setNav(n)} style={{ opacity:LOCKED_BY_PLAN.includes(n)?0.4:1, cursor:LOCKED_BY_PLAN.includes(n)?"not-allowed":"pointer" }}>
+            <span style={{ fontSize:12,flexShrink:0 }}>{LOCKED_BY_PLAN.includes(n)?"🔒":ICONS[n]||"·"}</span>
+            <span style={{ overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{n}{LOCKED_BY_PLAN.includes(n)?" (Upgrade)":""}</span>
             {n==="Leave"&&pending.length>0&&<span style={{ marginLeft:"auto",background:"#EF4444",color:"#fff",borderRadius:10,fontSize:9,fontWeight:700,padding:"1px 6px",flexShrink:0 }}>{pending.length}</span>}
             {n==="AI Alerts"&&computeAnomalies(allEmps,allAtt).filter(a=>a.severity==="high").length>0&&<span style={{ marginLeft:"auto",background:"#F59E0B",color:"#000",borderRadius:10,fontSize:9,fontWeight:700,padding:"1px 6px",flexShrink:0 }}>{computeAnomalies(allEmps,allAtt).filter(a=>a.severity==="high").length}</span>}
           </div>
