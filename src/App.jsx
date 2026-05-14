@@ -54,7 +54,14 @@ async function call(path, opts = {}, retry = true) {
     throw err;
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || data.message || `Error ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.error || data.message || `Error ${res.status}`);
+    err.status = res.status;
+    err.early_checkout = data.early_checkout || false;
+    err.worked_minutes = data.worked_minutes;
+    err.remaining_minutes = data.remaining_minutes;
+    throw err;
+  }
   return data;
 }
 
@@ -2288,7 +2295,7 @@ export default function App() {
           d = await api.post("/attendance/checkout", body);
         } catch(apiErr) {
           // Backend says early checkout required — show reason modal
-          if (apiErr?.message?.toLowerCase().includes("early") || apiErr?.message?.toLowerCase().includes("shift") || apiErr?.message?.toLowerCase().includes("hours")) {
+          if (apiErr?.early_checkout) {
             setModal({ type:"earlyCheckout", message: apiErr.message });
             setBusy(false); return;
           }
