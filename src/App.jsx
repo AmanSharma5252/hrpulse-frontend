@@ -1757,75 +1757,231 @@ function ModalHub({ modal, setModal, emps, ltypes, bals, user, depts, busy, appl
 
 // ─── PLATFORM ADMIN PAGE ──────────────────────────────────────────────────────
 function PlatformAdminPage({ user, allEmps, setAllEmps, updateEmp, useDemo }) {
-  const [search, setSearch] = useState("");
-  const [selRole, setSelRole] = useState("all");
-  const [editingId, setEditingId] = useState(null);
-  const [editRole, setEditRole] = useState("");
-  const [busy, setBusy] = useState(false);
+  // ── Plan definitions ──────────────────────────────────────────────────────
+  const PLANS = {
+    starter:    { name:"Starter",    price:"₹999/mo",   color:"#3B82F6", empLimit:10,  features:["GPS Attendance","Selfie Verify","Leave Management","Basic Reports","Email Support"], locked:["AI Alerts","Payroll","War Room","Analytics","QR Attendance"] },
+    growth:     { name:"Growth",     price:"₹2,999/mo", color:"#3ECF8E", empLimit:100, features:["GPS Attendance","Selfie Verify","Leave Management","Basic Reports","Email Support","AI Alerts","Payroll Summary","War Room","Analytics Dashboard","Priority Support","QR Attendance"], locked:["Custom Integrations","SLA Guarantee","HRMS API Access","Biometric Integration"] },
+    enterprise: { name:"Enterprise", price:"Custom",    color:"#FB923C", empLimit:9999,features:["Everything in Growth","Custom Integrations","SLA Guarantee","Dedicated Account Manager","On-premise Option","HRMS API Access","Biometric Integration"], locked:[] },
+  };
 
+  // ── State ─────────────────────────────────────────────────────────────────
+  const [tab, setTab]           = useState("companies"); // companies | users
+  const [search, setSearch]     = useState("");
+  const [selRole, setSelRole]   = useState("all");
+  const [editingId, setEditingId] = useState(null);
+  const [editRole, setEditRole]   = useState("");
+  const [busy, setBusy]           = useState(false);
+  const [expandedCo, setExpandedCo] = useState(null);
+
+  // ── Build company list from allEmps ───────────────────────────────────────
+  const [companyPlans, setCompanyPlans] = useState(()=>loadDemoState("companyPlans",{}));
+  const [companyStatus, setCompanyStatus] = useState(()=>loadDemoState("companyStatus",{}));
+
+  const companies = Object.values(
+    allEmps.reduce((acc, e) => {
+      const cid = e.company_id || "demo";
+      if (!acc[cid]) acc[cid] = { id:cid, name:cid==="demo"?"Demo Company":("Company "+cid.slice(0,8)), emps:[], plan: companyPlans[cid]||"growth", active: companyStatus[cid]!==false };
+      acc[cid].emps.push(e);
+      return acc;
+    }, {})
+  );
+
+  const changePlan = (coId, newPlan) => {
+    const updated = {...companyPlans, [coId]: newPlan};
+    setCompanyPlans(updated);
+    saveDemoState("companyPlans", updated);
+    toast.success(`Plan updated to ${PLANS[newPlan].name}!`);
+  };
+
+  const toggleCompany = (coId, active) => {
+    const updated = {...companyStatus, [coId]: active};
+    setCompanyStatus(updated);
+    saveDemoState("companyStatus", updated);
+    toast.success(active ? "Company activated!" : "Company suspended!");
+  };
+
+  // ── Users tab ─────────────────────────────────────────────────────────────
   const filtered = allEmps.filter(e =>
     (selRole === "all" || e.role === selRole) &&
-    (e.name.toLowerCase().includes(search.toLowerCase()) || (e.email||"").toLowerCase().includes(search.toLowerCase()))
+    ((e.name||"").toLowerCase().includes(search.toLowerCase()) || (e.email||"").toLowerCase().includes(search.toLowerCase()))
   );
 
   const handleRoleChange = async (empId, newRole) => {
     setBusy(true);
-    try {
-      await updateEmp(empId, { role: newRole });
-      setEditingId(null);
-    } catch(err) {
-      toast.error(err.message || "Failed to update role");
-    }
+    try { await updateEmp(empId, { role: newRole }); setEditingId(null); }
+    catch(err) { toast.error(err.message || "Failed to update role"); }
     setBusy(false);
   };
 
   const ROLE_COLORS = { super_admin:"#EF4444", admin:"#FB923C", hr:"#8B5CF6", manager:"#3B82F6", employee:"#3ECF8E" };
   const ALL_ROLES = ["employee","manager","hr","admin","super_admin"];
+  const PLAN_COLORS = { starter:"#3B82F6", growth:"#3ECF8E", enterprise:"#FB923C" };
+
+  // ── Stats ─────────────────────────────────────────────────────────────────
+  const totalEmps    = allEmps.length;
+  const totalCos     = companies.length;
+  const activeCos    = companies.filter(c=>c.active).length;
+  const planCounts   = companies.reduce((a,c)=>{ a[c.plan]=(a[c.plan]||0)+1; return a; },{});
 
   return (
     <div>
-      <div style={{ marginBottom:24 }}>
+      {/* Header */}
+      <div style={{ marginBottom:20 }}>
         <div style={{ fontSize:22,fontWeight:800,color:"var(--text)",letterSpacing:-.5 }}>🛡 Platform Admin</div>
-        <div style={{ fontSize:12,color:"var(--text3)",marginTop:4 }}>Manage all user roles and access levels across the platform. Changes are permanent.</div>
-        {useDemo&&<div style={{ marginTop:8,padding:"8px 14px",background:"#F59E0B22",border:"1px solid #F59E0B55",borderRadius:8,fontSize:12,color:"#F59E0B" }}>⚠ Demo mode — role changes are saved to local storage and persist on refresh.</div>}
+        <div style={{ fontSize:12,color:"var(--text3)",marginTop:3 }}>Full platform control — manage companies, plans, and users.</div>
+        {useDemo&&<div style={{ marginTop:8,padding:"7px 14px",background:"#F59E0B22",border:"1px solid #F59E0B55",borderRadius:8,fontSize:12,color:"#F59E0B" }}>⚠ Demo mode — all changes saved locally and persist on refresh.</div>}
       </div>
 
-      <div style={{ display:"flex",gap:10,marginBottom:16,flexWrap:"wrap" }}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name or email..." style={{ flex:1,minWidth:200,padding:"8px 12px",background:"var(--s2)",border:"1px solid var(--border2)",borderRadius:8,color:"var(--text)",fontSize:13 }}/>
-        <select value={selRole} onChange={e=>setSelRole(e.target.value)} style={{ padding:"8px 12px",background:"var(--s2)",border:"1px solid var(--border2)",borderRadius:8,color:"var(--text)",fontSize:13 }}>
-          <option value="all">All Roles</option>
-          {ALL_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
-        </select>
-      </div>
-
-      <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
-        {filtered.map(emp=>(
-          <div key={emp.id} style={{ background:"var(--s2)",border:"1px solid var(--border2)",borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:14 }}>
-            <div style={{ width:38,height:38,borderRadius:"50%",background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"var(--text)",flexShrink:0 }}>{emp.avatar}</div>
-            <div style={{ flex:1,minWidth:0 }}>
-              <div style={{ fontWeight:600,fontSize:14,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{emp.name}</div>
-              <div style={{ fontSize:11,color:"var(--text3)",marginTop:1 }}>{emp.dept||"—"} · {emp.title||"—"}</div>
-            </div>
-            <div style={{ flexShrink:0 }}>
-              {editingId===emp.id ? (
-                <div style={{ display:"flex",gap:6,alignItems:"center" }}>
-                  <select value={editRole} onChange={e=>setEditRole(e.target.value)} style={{ padding:"5px 10px",background:"var(--s3)",border:"1px solid var(--border2)",borderRadius:7,color:"var(--text)",fontSize:12 }}>
-                    {ALL_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
-                  </select>
-                  <button className="btn btn-p" style={{ fontSize:11,padding:"4px 12px" }} disabled={busy} onClick={()=>handleRoleChange(emp.id,editRole)}>Save</button>
-                  <button className="btn btn-g" style={{ fontSize:11,padding:"4px 10px" }} onClick={()=>setEditingId(null)}>✕</button>
-                </div>
-              ) : (
-                <div style={{ display:"flex",gap:8,alignItems:"center" }}>
-                  <span style={{ fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,background:(ROLE_COLORS[emp.role]||"#888")+"22",color:ROLE_COLORS[emp.role]||"#888",textTransform:"capitalize" }}>{emp.role}</span>
-                  {emp.id!==user?.id&&<button className="btn btn-g" style={{ fontSize:11,padding:"4px 10px" }} onClick={()=>{setEditingId(emp.id);setEditRole(emp.role);}}>✏ Change</button>}
-                </div>
-              )}
-            </div>
+      {/* Stats row */}
+      <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12,marginBottom:22 }}>
+        {[
+          { label:"Total Companies", val:totalCos,  icon:"🏢", color:"#8B5CF6" },
+          { label:"Active",          val:activeCos, icon:"✅", color:"#3ECF8E" },
+          { label:"Total Users",     val:totalEmps, icon:"👥", color:"#3B82F6" },
+          { label:"Starter",         val:planCounts.starter||0, icon:"⚡", color:"#3B82F6" },
+          { label:"Growth",          val:planCounts.growth||0,  icon:"🚀", color:"#3ECF8E" },
+          { label:"Enterprise",      val:planCounts.enterprise||0, icon:"🏆", color:"#FB923C" },
+        ].map(s=>(
+          <div key={s.label} style={{ background:"var(--s2)",border:"1px solid var(--border2)",borderRadius:12,padding:"12px 14px" }}>
+            <div style={{ fontSize:18 }}>{s.icon}</div>
+            <div style={{ fontSize:20,fontWeight:800,color:s.color,marginTop:4 }}>{s.val}</div>
+            <div style={{ fontSize:11,color:"var(--text3)",marginTop:2 }}>{s.label}</div>
           </div>
         ))}
-        {!filtered.length&&<div style={{ color:"var(--text3)",fontSize:13,padding:20,textAlign:"center" }}>No employees found.</div>}
       </div>
+
+      {/* Tabs */}
+      <div style={{ display:"flex",gap:8,marginBottom:18 }}>
+        {[["companies","🏢 Companies"],["users","👥 Users"]].map(([t,l])=>(
+          <button key={t} onClick={()=>setTab(t)} style={{ padding:"7px 18px",borderRadius:8,border:"1px solid var(--border2)",background:tab===t?"var(--g)":"var(--s2)",color:tab===t?"#000":"var(--text)",fontWeight:tab===t?700:400,fontSize:13,cursor:"pointer" }}>{l}</button>
+        ))}
+      </div>
+
+      {/* ── COMPANIES TAB ── */}
+      {tab==="companies"&&(
+        <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+          {companies.map(co=>{
+            const plan = PLANS[co.plan]||PLANS.growth;
+            const adminEmp = co.emps.find(e=>e.role==="admin"||e.role==="super_admin");
+            const isExpanded = expandedCo===co.id;
+            const empPct = Math.min(100, Math.round((co.emps.length/plan.empLimit)*100));
+            return (
+              <div key={co.id} style={{ background:"var(--s2)",border:`1px solid ${co.active?"var(--border2)":"#EF444444"}`,borderRadius:14,overflow:"hidden" }}>
+                {/* Company header */}
+                <div style={{ padding:"14px 18px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap" }}>
+                  <div style={{ width:42,height:42,borderRadius:10,background:PLAN_COLORS[co.plan]+"22",border:`1px solid ${PLAN_COLORS[co.plan]}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>🏢</div>
+                  <div style={{ flex:1,minWidth:0 }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
+                      <div style={{ fontWeight:700,fontSize:15,color:"var(--text)" }}>{co.name}</div>
+                      <span style={{ fontSize:10,fontWeight:700,padding:"2px 9px",borderRadius:20,background:PLAN_COLORS[co.plan]+"22",color:PLAN_COLORS[co.plan],textTransform:"uppercase",letterSpacing:.5 }}>{plan.name}</span>
+                      {!co.active&&<span style={{ fontSize:10,fontWeight:700,padding:"2px 9px",borderRadius:20,background:"#EF444422",color:"#EF4444" }}>SUSPENDED</span>}
+                    </div>
+                    <div style={{ fontSize:11,color:"var(--text3)",marginTop:3 }}>
+                      Admin: <span style={{color:"var(--text)"}}>{adminEmp?.name||"—"}</span> · {co.emps.length}/{plan.empLimit==="9999"?"∞":plan.empLimit} employees · {plan.price}
+                    </div>
+                    {/* Employee usage bar */}
+                    <div style={{ marginTop:6,height:4,background:"var(--s3)",borderRadius:4,width:"100%",maxWidth:200 }}>
+                      <div style={{ height:4,borderRadius:4,background:empPct>90?"#EF4444":empPct>70?"#F59E0B":PLAN_COLORS[co.plan],width:empPct+"%",transition:"width .3s" }}/>
+                    </div>
+                  </div>
+                  <div style={{ display:"flex",gap:8,alignItems:"center",flexShrink:0 }}>
+                    {/* Plan selector */}
+                    <select value={co.plan} onChange={e=>changePlan(co.id,e.target.value)} style={{ padding:"5px 10px",background:"var(--s3)",border:"1px solid var(--border2)",borderRadius:8,color:"var(--text)",fontSize:12,cursor:"pointer" }}>
+                      <option value="starter">Starter — ₹999</option>
+                      <option value="growth">Growth — ₹2,999</option>
+                      <option value="enterprise">Enterprise — Custom</option>
+                    </select>
+                    {/* Suspend/Activate */}
+                    <button onClick={()=>toggleCompany(co.id,!co.active)} style={{ padding:"5px 12px",borderRadius:8,border:"none",background:co.active?"#EF444422":"#3ECF8E22",color:co.active?"#EF4444":"#3ECF8E",fontSize:12,fontWeight:600,cursor:"pointer" }}>{co.active?"Suspend":"Activate"}</button>
+                    {/* Expand */}
+                    <button onClick={()=>setExpandedCo(isExpanded?null:co.id)} style={{ padding:"5px 12px",borderRadius:8,border:"1px solid var(--border2)",background:"var(--s3)",color:"var(--text)",fontSize:12,cursor:"pointer" }}>{isExpanded?"▲ Hide":"▼ Details"}</button>
+                  </div>
+                </div>
+
+                {/* Expanded details */}
+                {isExpanded&&(
+                  <div style={{ borderTop:"1px solid var(--border)",padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
+                    {/* Features included */}
+                    <div>
+                      <div style={{ fontSize:11,fontWeight:700,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>✅ INCLUDED FEATURES</div>
+                      {plan.features.map(f=>(
+                        <div key={f} style={{ fontSize:12,color:"var(--text)",marginBottom:4,display:"flex",alignItems:"center",gap:6 }}>
+                          <span style={{color:"#3ECF8E"}}>✓</span> {f}
+                        </div>
+                      ))}
+                    </div>
+                    {/* Locked features */}
+                    <div>
+                      {plan.locked.length>0&&<>
+                        <div style={{ fontSize:11,fontWeight:700,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>🔒 LOCKED (upgrade to unlock)</div>
+                        {plan.locked.map(f=>(
+                          <div key={f} style={{ fontSize:12,color:"var(--text3)",marginBottom:4,display:"flex",alignItems:"center",gap:6 }}>
+                            <span style={{color:"#EF4444"}}>✕</span> {f}
+                          </div>
+                        ))}
+                      </>}
+                      {/* Employees list */}
+                      <div style={{ marginTop:plan.locked.length?16:0 }}>
+                        <div style={{ fontSize:11,fontWeight:700,color:"var(--text3)",marginBottom:8,letterSpacing:.5 }}>👥 EMPLOYEES ({co.emps.length})</div>
+                        <div style={{ maxHeight:160,overflowY:"auto",display:"flex",flexDirection:"column",gap:4 }}>
+                          {co.emps.map(e=>(
+                            <div key={e.id} style={{ display:"flex",alignItems:"center",gap:8,padding:"4px 8px",background:"var(--s3)",borderRadius:7 }}>
+                              <div style={{ width:24,height:24,borderRadius:"50%",background:(ROLE_COLORS[e.role]||"#888")+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:ROLE_COLORS[e.role]||"#888",flexShrink:0 }}>{e.avatar}</div>
+                              <div style={{ fontSize:12,color:"var(--text)",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{e.name}</div>
+                              <span style={{ fontSize:10,padding:"1px 7px",borderRadius:10,background:(ROLE_COLORS[e.role]||"#888")+"22",color:ROLE_COLORS[e.role]||"#888",textTransform:"capitalize",flexShrink:0 }}>{e.role}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── USERS TAB ── */}
+      {tab==="users"&&(
+        <div>
+          <div style={{ display:"flex",gap:10,marginBottom:14,flexWrap:"wrap" }}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name or email..." style={{ flex:1,minWidth:200,padding:"8px 12px",background:"var(--s2)",border:"1px solid var(--border2)",borderRadius:8,color:"var(--text)",fontSize:13 }}/>
+            <select value={selRole} onChange={e=>setSelRole(e.target.value)} style={{ padding:"8px 12px",background:"var(--s2)",border:"1px solid var(--border2)",borderRadius:8,color:"var(--text)",fontSize:13 }}>
+              <option value="all">All Roles</option>
+              {ALL_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+            {filtered.map(emp=>(
+              <div key={emp.id} style={{ background:"var(--s2)",border:"1px solid var(--border2)",borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:14 }}>
+                <div style={{ width:38,height:38,borderRadius:"50%",background:(ROLE_COLORS[emp.role]||"#888")+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:ROLE_COLORS[emp.role]||"#888",flexShrink:0 }}>{emp.avatar}</div>
+                <div style={{ flex:1,minWidth:0 }}>
+                  <div style={{ fontWeight:600,fontSize:14,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{emp.name}</div>
+                  <div style={{ fontSize:11,color:"var(--text3)",marginTop:1 }}>{emp.dept||"—"} · {emp.title||"—"}</div>
+                </div>
+                <div style={{ flexShrink:0 }}>
+                  {editingId===emp.id ? (
+                    <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+                      <select value={editRole} onChange={e=>setEditRole(e.target.value)} style={{ padding:"5px 10px",background:"var(--s3)",border:"1px solid var(--border2)",borderRadius:7,color:"var(--text)",fontSize:12 }}>
+                        {ALL_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+                      </select>
+                      <button className="btn btn-p" style={{ fontSize:11,padding:"4px 12px" }} disabled={busy} onClick={()=>handleRoleChange(emp.id,editRole)}>Save</button>
+                      <button className="btn btn-g" style={{ fontSize:11,padding:"4px 10px" }} onClick={()=>setEditingId(null)}>✕</button>
+                    </div>
+                  ) : (
+                    <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+                      <span style={{ fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,background:(ROLE_COLORS[emp.role]||"#888")+"22",color:ROLE_COLORS[emp.role]||"#888",textTransform:"capitalize" }}>{emp.role}</span>
+                      {emp.id!==user?.id&&<button className="btn btn-g" style={{ fontSize:11,padding:"4px 10px" }} onClick={()=>{setEditingId(emp.id);setEditRole(emp.role);}}>✏ Change</button>}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {!filtered.length&&<div style={{ color:"var(--text3)",fontSize:13,padding:20,textAlign:"center" }}>No users found.</div>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2074,12 +2230,23 @@ export default function App() {
   const pending  = leaves.filter(l=>l.status==="pending");
   const depts    = Object.keys(DEPT_COLORS);
 
+  // Plan-based feature locking
+  const userPlan = (() => {
+    try { const p=loadDemoState("companyPlans",{}); return p[user?.company_id||"demo"]||"growth"; } catch { return "growth"; }
+  })();
+  const PLAN_FEATURES = {
+    starter:    { payroll:false, aiAlerts:false, warRoom:false, analytics:false },
+    growth:     { payroll:true,  aiAlerts:true,  warRoom:true,  analytics:true  },
+    enterprise: { payroll:true,  aiAlerts:true,  warRoom:true,  analytics:true  },
+  };
+  const planF = isSuperAdmin ? { payroll:true,aiAlerts:true,warRoom:true,analytics:true } : (PLAN_FEATURES[userPlan]||PLAN_FEATURES.growth);
+
   const NAV_LINKS = isSuperAdmin
     ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Platform Admin","My Profile"]
     : isAdmin
-    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","My Profile"]
+    ? ["Overview",...(planF.analytics?["Analytics"]:[]),...(planF.aiAlerts?["AI Alerts"]:[]),...(planF.warRoom?["War Room"]:[]),"Attendance","Employees","Leave",...(planF.payroll?["Payroll"]:[]),"Performance","Announcements","Reports","Onboarding","Pricing","My Profile"]
     : isMgr
-    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Performance","Announcements","My Profile"]
+    ? ["Overview",...(planF.analytics?["Analytics"]:[]),...(planF.aiAlerts?["AI Alerts"]:[]),...(planF.warRoom?["War Room"]:[]),"Attendance","Employees","Leave","Performance","Announcements","My Profile"]
     : ["Overview","My Attendance","Apply Leave","Announcements","My Profile"];
 
   const ICONS = { Overview:"◈",Analytics:"📊","AI Alerts":"🤖","War Room":"🎯",Attendance:"◷","My Attendance":"◷",Employees:"⊛",Leave:"◇","Apply Leave":"◇",Payroll:"💳",Performance:"◉",Announcements:"📢",Reports:"◎",Onboarding:"🚀",Pricing:"💰","Platform Admin":"🛡","My Profile":"◐" };
