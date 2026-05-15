@@ -2453,6 +2453,7 @@ export default function App() {
   };
 
   // ✅ checkOut supports early checkout with reason
+  // ✅ checkOut supports early checkout with reason
   const checkOut=async(selfie=null, earlyReason=null)=>{
     setBusy(true);
     try {
@@ -2466,9 +2467,10 @@ export default function App() {
         } catch(apiErr) {
           if (apiErr?.early_checkout) {
             setModal({ type:"earlyCheckout", message: apiErr.message, selfie });
-            setBusy(false); return;
+            setBusy(false); return;  // ✅ busy reset before return
           }
-          throw apiErr;
+          toast.error(apiErr.message);
+          setBusy(false); return;    // ✅ reset on any other error too
         }
         toast.success(`${d.message}${d.work_minutes ? ` · ${fmtH(d.work_minutes)} worked` : ""}`);
         loadAll();
@@ -2491,7 +2493,18 @@ export default function App() {
   };
 
   const handleCheckIn  = ()=>setModal({type:"selfie",action:"in"});
-  const handleCheckOut = ()=>checkOut(null);
+const handleCheckOut = ()=>{
+  const todayRecord = att.find(r=>r.date===todayStr());
+  if(todayRecord?.check_in){
+    const mins=Math.round((new Date()-new Date(todayRecord.check_in))/60000);
+    if(mins<480){
+      const wH=Math.floor(mins/60),wM=mins%60,rH=Math.floor((480-mins)/60),rM=(480-mins)%60;
+      setModal({type:"earlyCheckout",message:`You have only worked ${wH}h ${wM}m. Full shift is 8 hours (${rH}h ${rM}m remaining). Please provide a reason for early checkout.`,selfie:null});
+      return;
+    }
+  }
+  checkOut(null);
+};
 
   const applyLeave=async(ltId,from,to,reason)=>{
     setBusy(true);
