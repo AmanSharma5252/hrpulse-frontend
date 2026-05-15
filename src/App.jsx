@@ -1968,8 +1968,9 @@ function ModalHub({ modal, setModal, emps, ltypes, bals, user, depts, busy, appl
             onClick={()=>{
               const reason = f.reason;
               const selfie = modal.selfie || null;
-              close();
+              if (!reason) return;
               checkOut(selfie, reason);
+              close();
             }}
           >
             {busy?<Spin/>:"Submit & Clock Out"}
@@ -2454,43 +2455,67 @@ export default function App() {
 
   // ✅ checkOut supports early checkout with reason
   // ✅ checkOut supports early checkout with reason
-  const checkOut=async(selfie=null, earlyReason=null)=>{
-    setBusy(true);
-    try {
-      if (!useDemo) {
-        const loc=await getLocation();
-        const body = { latitude:loc.lat, longitude:loc.lng, selfie_base64:selfie };
-        if (earlyReason) body.early_checkout_reason = earlyReason;
-        let d;
-        try {
-          d = await api.post("/attendance/checkout", body);
-        } catch(apiErr) {
-          if (apiErr?.early_checkout) {
-            setModal({ type:"earlyCheckout", message: apiErr.message, selfie });
-            setBusy(false); return;  // ✅ busy reset before return
-          }
-          toast.error(apiErr.message);
-          setBusy(false); return;    // ✅ reset on any other error too
-        }
-        toast.success(`${d.message}${d.work_minutes ? ` · ${fmtH(d.work_minutes)} worked` : ""}`);
-        loadAll();
-      } else {
-        await new Promise(r=>setTimeout(r,600));
-        const now=new Date();
-        const todayAttRec = att.find(r=>r.date===todayStr());
-        const mins = todayAttRec?.check_in ? Math.round((now-new Date(todayAttRec.check_in))/60000) : 0;
-        if (mins < 480 && !earlyReason) {
-          const wH=Math.floor(mins/60), wM=mins%60, rH=Math.floor((480-mins)/60), rM=(480-mins)%60;
-          setModal({ type:"earlyCheckout", message:`You have only worked ${wH}h ${wM}m. Full shift is 8 hours (${rH}h ${rM}m remaining). Please provide a reason for early checkout.`, selfie });
+  const checkOut = async (selfie=null, earlyReason=null) => {
+  setBusy(true);
+  try {
+    if (!useDemo) {
+      let loc = { lat: null, lng: null };
+      if (!earlyReason) loc = await getLocation();
+      const body = { latitude: loc.lat, longitude: loc.lng, selfie_base64: selfie };
+      if (earlyReason) body.early_checkout_reason = earlyReason;
+
+      let d;
+      try {
+        d = await api.post("/attendance/checkout", body); // ← was missing
+      } catch (apiErr) {
+        if (apiErr?.early_checkout) {
+          setModal({ type: "earlyCheckout", message: apiErr.message, selfie });
           setBusy(false); return;
         }
-        setAtt(p=>p.map(r=>r.date===todayStr()?{...r,check_out:now.toISOString(),work_minutes:mins,early_checkout:mins<480,early_checkout_reason:earlyReason||null}:r));
-        setAllAtt(p=>p.map(r=>r.date===todayStr()&&r.employee_id===user.id?{...r,check_out:now.toISOString(),work_minutes:mins,early_checkout:mins<480}:r));
-        toast.success(earlyReason ? `Early checkout recorded — ${Math.floor(mins/60)}h ${mins%60}m worked` : "Clocked out! Great work today 👋");
+        toast.error(apiErr.message);
+        setBusy(false); return;
       }
-    } catch(e) { toast.error(e.message); }
-    setBusy(false);
-  };
+
+      toast.success(`${d.message}${d.work_minutes ? ` · ${fmtH(d.work_minutes)} worked` : ""}`);
+      loadAll();
+
+    } else {
+      await new Promise(r => setTimeout(r, 600));
+      const now = new Date();
+      const todayAttRec = att.find(r => r.date === todayStr());
+      const mins = todayAttRec?.check_in
+        ? Math.round((now - new Date(todayAttRec.check_in)) / 60000)
+        : 0;
+
+      if (mins < 480 && !earlyReason) {
+        const wH=Math.floor(mins/60), wM=mins%60;
+        const rH=Math.floor((480-mins)/60), rM=(480-mins)%60;
+        setModal({
+          type: "earlyCheckout",
+          message: `You have only worked ${wH}h ${wM}m. Full shift is 8 hours (${rH}h ${rM}m remaining). Please provide a reason for early checkout.`,
+          selfie,
+        });
+        setBusy(false); return;
+      }
+
+      setAtt(p => p.map(r => r.date === todayStr()
+        ? { ...r, check_out: now.toISOString(), work_minutes: mins, early_checkout: mins < 480, early_checkout_reason: earlyReason || null }
+        : r
+      ));
+      setAllAtt(p => p.map(r => r.date === todayStr() && r.employee_id === user.id
+        ? { ...r, check_out: now.toISOString(), work_minutes: mins, early_checkout: mins < 480 }
+        : r
+      ));
+      toast.success(earlyReason
+        ? `Early checkout recorded — ${Math.floor(mins/60)}h ${mins%60}m worked`
+        : "Clocked out! Great work today 👋"
+      );
+    }
+  } catch (e) {
+    toast.error(e.message);
+  }
+  setBusy(false);
+};
 
   const handleCheckIn  = ()=>setModal({type:"selfie",action:"in"});
 const handleCheckOut = ()=>{
