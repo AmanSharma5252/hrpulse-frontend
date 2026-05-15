@@ -2491,7 +2491,7 @@ export default function App() {
   };
 
   const handleCheckIn  = ()=>setModal({type:"selfie",action:"in"});
-  const handleCheckOut = ()=>setModal({type:"selfie",action:"out"});
+  const handleCheckOut = ()=>checkOut(null);
 
   const applyLeave=async(ltId,from,to,reason)=>{
     setBusy(true);
