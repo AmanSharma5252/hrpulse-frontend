@@ -2285,8 +2285,8 @@ export default function App() {
   const [modal,setModal]   = useState(null);
   const [busy,setBusy]     = useState(false);
   const [clock,setClock]   = useState(new Date());
-  const [allAtt,setAllAtt] = useState(SEED_ATT_ALL);
-  const [allEmps,setAllEmps]=useState(()=>loadDemoState("allEmps",SEED_EMPLOYEES.map(eNorm)));
+  const [allAtt,setAllAtt] = useState([]);
+  const [allEmps,setAllEmps]=useState([]);
   const [companies,setCompanies]=useState([]);
   const [useDemo,setUseDemo]=useState(false);
   const [companySuspended, setCompanySuspended] = useState(false);
@@ -2367,16 +2367,22 @@ export default function App() {
       setLtypes(lt.leave_types||[]);
       setBals(bl.balances||[]);
       if (isMgr || isSuperAdmin) {
-        const [eData,anal,coData]=await Promise.all([
+        const [eData,anal,coData,attData]=await Promise.all([
           api.get("/employees?limit=1000&is_active=all").catch(()=>({employees:[]})),
           api.get("/analytics/overview").catch(()=>null),
           isSuperAdmin?api.get("/companies").catch(()=>({companies:[]})):Promise.resolve({companies:[]}),
+          api.get(`/attendance/team?date=${new Date().toISOString().split("T")[0]}`).catch(()=>({records:[]})),
         ]);
         const empList=(eData.employees||[]).map(eNorm);
         setEmps(empList);
         if(empList.length) setAllEmps(empList);
         setAn(anal);
         if(isSuperAdmin&&coData.companies?.length) setCompanies(coData.companies);
+        if(attData.records?.length) setAllAtt(prev=>{
+          const today = new Date().toISOString().split("T")[0];
+          const filtered = prev.filter(r=>r.date!==today);
+          return [...filtered, ...attData.records];
+        });
       }
     } catch {}
   }
@@ -2400,11 +2406,15 @@ export default function App() {
       const emp=SEED_EMPLOYEES.find(e=>e.id===found[2]);
       const u=eNorm(emp);
       setUser(u); setUseDemo(true);
-      setEmps(SEED_EMPLOYEES.map(eNorm));
+      const seedEmps = SEED_EMPLOYEES.map(eNorm);
+      const seedAtt  = SEED_ATT_ALL;
+      setEmps(seedEmps);
+      setAllEmps(seedEmps);
+      setAllAtt(seedAtt);
       setLeaves(SEED_LEAVES.map(lNorm));
       setLtypes([{id:"lt1",name:"Annual Leave",default_days:18,is_paid:true},{id:"lt2",name:"Sick Leave",default_days:12,is_paid:true},{id:"lt3",name:"Casual Leave",default_days:6,is_paid:true}]);
       setBals([{id:"b1",employee_id:found[2],leave_type_id:"lt1",year:2026,total_days:18,used_days:4,pending_days:0,leave_type:{name:"Annual Leave",is_paid:true}},{id:"b2",employee_id:found[2],leave_type_id:"lt2",year:2026,total_days:12,used_days:2,pending_days:2,leave_type:{name:"Sick Leave",is_paid:true}},{id:"b3",employee_id:found[2],leave_type_id:"lt3",year:2026,total_days:6,used_days:1,pending_days:0,leave_type:{name:"Casual Leave",is_paid:true}}]);
-      setAtt(SEED_ATT_ALL.filter(a=>a.employee_id===found[2]).slice(-30));
+      setAtt(seedAtt.filter(a=>a.employee_id===found[2]).slice(-30));
       setMySum({present:18,late:3,on_leave:2,total_minutes:18*480+3*360});
       setDash({summary:{total_employees:SEED_EMPLOYEES.filter(e=>e.is_active).length,pending_leaves:SEED_LEAVES.filter(l=>l.status==="pending").length,today_attendance:{present:7,late:2,absent:1,on_leave:1,total:11,rate:82}},department_distribution:{Engineering:3,Sales:2,Design:2,HR:1,Marketing:1,Finance:1,Management:1}});
       setAn({total_employees:11,today:{present:7,late:2,absent:1,on_leave:1,rate:82},pending_leaves:SEED_LEAVES.filter(l=>l.status==="pending").length,department_distribution:{Engineering:3,Sales:2,Design:2,HR:1,Marketing:1,Finance:1,Management:1}});
@@ -2417,7 +2427,8 @@ export default function App() {
     await api.post("/auth/logout",{refresh_token:_rt}).catch(()=>{});
     clearTokens(); clearDemoState();
     setUser(null); setEmps([]); setLeaves([]); setDash(null);
-    setUseDemo(false); setAllEmps(SEED_EMPLOYEES.map(eNorm));
+    setAtt([]); setAllAtt([]); setAllEmps([]);
+    setUseDemo(false);
     setCompanySuspended(false);
   };
 
@@ -2565,7 +2576,7 @@ export default function App() {
   const NAV_LINKS = isSuperAdmin
     ? ["Overview","Analytics","AI Alerts","War Room","Live Tracker","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Platform Admin","My Profile"]
     : isAdmin
-    ? ["Overview","Analytics","AI Alerts","War Room","Live Tracker","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","My Profile"]
+    ? ["Overview","Analytics","AI Alerts","War Room","Live Tracker","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Pricing","My Profile"]
     : isMgr
     ? ["Overview","Analytics","AI Alerts","War Room","Live Tracker","Attendance","Employees","Leave","Performance","Announcements","My Profile"]
     : ["Overview","My Attendance","Apply Leave","Announcements","My Profile"];
