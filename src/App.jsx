@@ -1096,6 +1096,159 @@ function WarRoomPage({ allEmps, allAtt }) {
 }
 
 // ─── ONBOARDING PAGE ──────────────────────────────────────────────────────────
+// ─── LIVE TRACKER PAGE ────────────────────────────────────────────────────────
+function LiveTrackerPage({ allEmps, allAtt, isSuperAdmin }) {
+  const [selected, setSelected] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markersRef = useRef({});
+  const today = todayStr();
+
+  const todayAtt = allAtt.filter(a => a.date === today && a.latitude && a.longitude);
+  const empMap = Object.fromEntries(allEmps.map(e => [e.id, e]));
+  const tracked = todayAtt.map(a => ({
+    ...a,
+    emp: empMap[a.employee_id] || { name: "Unknown", avatar: "?", dept: "", role: "employee" },
+  })).filter(a => {
+    if (filter === "all") return true;
+    if (filter === "in") return a.check_in && !a.check_out;
+    if (filter === "out") return !!a.check_out;
+    return true;
+  });
+
+  useEffect(() => {
+    if (mapInstanceRef.current) return;
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
+    document.head.appendChild(link);
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+    script.onload = () => initMap();
+    document.head.appendChild(script);
+  }, []);
+
+  useEffect(() => { if (mapInstanceRef.current) updateMarkers(); }, [tracked, selected]);
+
+  function initMap() {
+    if (!mapRef.current || mapInstanceRef.current) return;
+    const map = window.L.map(mapRef.current, { zoomControl: true }).setView([28.6139, 77.2090], 11);
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap", maxZoom: 19,
+    }).addTo(map);
+    mapInstanceRef.current = map;
+    updateMarkers();
+  }
+
+  function updateMarkers() {
+    const L = window.L;
+    if (!L || !mapInstanceRef.current) return;
+    const map = mapInstanceRef.current;
+    Object.values(markersRef.current).forEach(m => map.removeLayer(m));
+    markersRef.current = {};
+    tracked.forEach(a => {
+      const isSelected = selected?.employee_id === a.employee_id;
+      const color = a.check_out ? "#EF4444" : a.status === "late" ? "#F59E0B" : "#3ECF8E";
+      const size = isSelected ? 44 : 36;
+      const icon = L.divIcon({
+        className: "",
+        html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color}22;border:2.5px solid ${color};display:flex;align-items:center;justify-content:center;font-size:${isSelected?16:13}px;font-weight:800;color:${color};box-shadow:0 0 ${isSelected?16:8}px ${color}66;font-family:sans-serif;">${a.emp.avatar}</div><div style="position:absolute;top:${size}px;left:50%;transform:translateX(-50%);background:#0a1020;border:1px solid ${color}44;border-radius:6px;padding:2px 6px;font-size:9px;color:${color};white-space:nowrap;font-family:sans-serif;font-weight:700;margin-top:2px;">${a.emp.name.split(" ")[0]}</div>`,
+        iconSize: [size, size + 20],
+        iconAnchor: [size / 2, size / 2],
+      });
+      const marker = L.marker([a.latitude, a.longitude], { icon }).addTo(map).on("click", () => setSelected(a));
+      markersRef.current[a.employee_id] = marker;
+    });
+    if (tracked.length > 0) {
+      map.fitBounds(tracked.map(a => [a.latitude, a.longitude]), { padding: [40, 40], maxZoom: 14 });
+    }
+  }
+
+  const statusColor = a => a.check_out ? "#EF4444" : a.status === "late" ? "#F59E0B" : "#3ECF8E";
+  const statusLabel = a => a.check_out ? "Clocked Out" : a.status === "late" ? "Late" : "Active";
+
+  return (
+    <div className="fu" style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+        {[["Total Tracked",todayAtt.length,"#3B82F6"],["Active Now",todayAtt.filter(a=>a.check_in&&!a.check_out).length,"#3ECF8E"],["Clocked Out",todayAtt.filter(a=>a.check_out).length,"#EF4444"],["Late",todayAtt.filter(a=>a.status==="late").length,"#F59E0B"]].map(([l,v,c])=>(
+          <div key={l} style={{ background:`${c}0d`,border:`1px solid ${c}22`,borderRadius:12,padding:"10px 18px",textAlign:"center",minWidth:90 }}>
+            <div style={{ fontSize:22,fontWeight:900,color:c,letterSpacing:-1 }}>{v}</div>
+            <div style={{ fontSize:10,color:`${c}99`,marginTop:2 }}>{l}</div>
+          </div>
+        ))}
+        <div style={{ marginLeft:"auto",display:"flex",gap:6 }}>
+          {["all","in","out"].map(f=>(
+            <button key={f} className={`tab ${filter===f?"on":""}`} onClick={()=>setFilter(f)}>
+              {f==="all"?"All":f==="in"?"Active":"Clocked Out"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 320px", gap:14, height:520 }}>
+        <div style={{ borderRadius:16, overflow:"hidden", border:"1px solid var(--border2)", position:"relative" }}>
+          <div ref={mapRef} style={{ width:"100%", height:"100%" }}/>
+          {todayAtt.length===0&&(
+            <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10,background:"var(--s1)",zIndex:999 }}>
+              <div style={{ fontSize:36 }}>📍</div>
+              <div style={{ fontWeight:700,color:"var(--text)" }}>No location data today</div>
+              <div style={{ fontSize:12,color:"var(--text3)" }}>Employees need GPS enabled when clocking in</div>
+            </div>
+          )}
+        </div>
+        <div style={{ background:"var(--s1)",border:"1px solid var(--border)",borderRadius:16,overflow:"hidden",display:"flex",flexDirection:"column" }}>
+          <div style={{ padding:"14px 16px",borderBottom:"1px solid var(--border)",fontSize:12,fontWeight:700,color:"var(--text3)",letterSpacing:.5 }}>
+            EMPLOYEES TODAY · {tracked.length}
+          </div>
+          <div style={{ overflowY:"auto", flex:1 }}>
+            {tracked.length===0&&<div style={{ padding:24,textAlign:"center",color:"var(--text3)",fontSize:12 }}>No employees tracked</div>}
+            {tracked.map(a=>{
+              const c=statusColor(a);
+              const isSel=selected?.employee_id===a.employee_id;
+              return (
+                <div key={a.employee_id} onClick={()=>{ setSelected(isSel?null:a); if(!isSel&&mapInstanceRef.current) mapInstanceRef.current.setView([a.latitude,a.longitude],15); }}
+                  style={{ padding:"12px 16px",cursor:"pointer",borderBottom:"1px solid var(--border)",background:isSel?`${c}0a`:"transparent",borderLeft:isSel?`3px solid ${c}`:"3px solid transparent",transition:"all .15s" }}>
+                  <div style={{ display:"flex",gap:10,alignItems:"center" }}>
+                    <div style={{ position:"relative",flexShrink:0 }}>
+                      {a.selfie_in
+                        ? <img src={a.selfie_in} alt="selfie" style={{ width:38,height:38,borderRadius:"50%",objectFit:"cover",border:`2px solid ${c}` }}/>
+                        : <div style={{ width:38,height:38,borderRadius:"50%",background:`${c}12`,border:`2px solid ${c}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:c }}>{a.emp.avatar}</div>
+                      }
+                      <div style={{ position:"absolute",bottom:0,right:0,width:10,height:10,borderRadius:"50%",background:c,border:"1.5px solid var(--s1)" }}/>
+                    </div>
+                    <div style={{ flex:1,minWidth:0 }}>
+                      <div style={{ fontSize:13,fontWeight:700,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{a.emp.name}</div>
+                      <div style={{ fontSize:10,color:"var(--text3)",marginTop:1 }}>{a.emp.dept} · {a.emp.role}</div>
+                      <div style={{ fontSize:10,color:c,marginTop:2,fontWeight:600 }}>{statusLabel(a)} · In: {fmtT(a.check_in)}{a.check_out?` · Out: ${fmtT(a.check_out)}`:""}</div>
+                    </div>
+                  </div>
+                  {isSel&&(
+                    <div style={{ marginTop:12,paddingTop:12,borderTop:`1px solid ${c}22` }}>
+                      {a.selfie_in&&<img src={a.selfie_in} alt="selfie" style={{ width:"100%",borderRadius:10,marginBottom:10,border:`1px solid ${c}33`,maxHeight:140,objectFit:"cover" }}/>}
+                      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:6 }}>
+                        {[["📍 Lat",a.latitude?.toFixed(4)],["📍 Lng",a.longitude?.toFixed(4)],["🕐 Clock In",fmtT(a.check_in)],["🕐 Clock Out",fmtT(a.check_out)||"—"],["📊 Status",statusLabel(a)],["⏱ Worked",fmtH(a.work_minutes)||"—"]].map(([k,v])=>(
+                          <div key={k} style={{ background:"var(--s2)",borderRadius:8,padding:"6px 8px" }}>
+                            <div style={{ fontSize:9,color:"var(--text3)",marginBottom:2 }}>{k}</div>
+                            <div style={{ fontSize:11,fontWeight:700,color:"var(--text)" }}>{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <a href={`https://www.google.com/maps?q=${a.latitude},${a.longitude}`} target="_blank" rel="noopener noreferrer"
+                        style={{ display:"block",marginTop:8,padding:"6px 12px",background:`${c}12`,border:`1px solid ${c}33`,borderRadius:8,fontSize:11,color:c,fontWeight:700,textAlign:"center",textDecoration:"none" }}>
+                        Open in Google Maps →
+                      </a>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OnboardingPage({ onComplete }) {
   const [step,setStep]=useState(0);
   const [f,setF]=useState({ company:"",industry:"",size:"",officeAddr:"",lat:"",lng:"",radius:"100",adminName:"",adminEmail:"",adminPassword:"",timezone:"Asia/Kolkata" });
@@ -1812,7 +1965,7 @@ function ModalHub({ modal, setModal, emps, ltypes, bals, user, depts, busy, appl
           <button
             className="btn btn-w"
             disabled={!f.reason||busy}
-            onClick={()=>{ const reason = f.reason; close(); checkOut(null, reason); }}
+            onClick={()=>{ close(); checkOut(null, f.reason); }}
           >
             {busy?<Spin/>:"Submit & Clock Out"}
           </button>
@@ -2290,7 +2443,6 @@ export default function App() {
         const loc=await getLocation();
         const body = { latitude:loc.lat, longitude:loc.lng, selfie_base64:selfie };
         if (earlyReason) body.early_checkout_reason = earlyReason;
-        console.log("CHECKOUT BODY:", JSON.stringify(body));
         let d;
         try {
           d = await api.post("/attendance/checkout", body);
@@ -2407,14 +2559,14 @@ export default function App() {
   const planF = isSuperAdmin ? { payroll:true,aiAlerts:true,warRoom:true,analytics:true } : (PLAN_FEATURES[userPlan]||PLAN_FEATURES.growth);
 
   const NAV_LINKS = isSuperAdmin
-    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Platform Admin","My Profile"]
+    ? ["Overview","Analytics","AI Alerts","War Room","Live Tracker","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","Platform Admin","My Profile"]
     : isAdmin
-    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","My Profile"]
+    ? ["Overview","Analytics","AI Alerts","War Room","Live Tracker","Attendance","Employees","Leave","Payroll","Performance","Announcements","Reports","Onboarding","Pricing","My Profile"]
     : isMgr
-    ? ["Overview","Analytics","AI Alerts","War Room","Attendance","Employees","Leave","Performance","Announcements","My Profile"]
+    ? ["Overview","Analytics","AI Alerts","War Room","Live Tracker","Attendance","Employees","Leave","Performance","Announcements","My Profile"]
     : ["Overview","My Attendance","Apply Leave","Announcements","My Profile"];
 
-  const ICONS = { Overview:"◈",Analytics:"📊","AI Alerts":"🤖","War Room":"🎯",Attendance:"◷","My Attendance":"◷",Employees:"⊛",Leave:"◇","Apply Leave":"◇",Payroll:"💳",Performance:"◉",Announcements:"📢",Reports:"◎",Onboarding:"🚀",Pricing:"💰","Platform Admin":"🛡","My Profile":"◐" };
+  const ICONS = { Overview:"◈",Analytics:"📊","AI Alerts":"🤖","War Room":"🎯","Live Tracker":"🗺️",Attendance:"◷","My Attendance":"◷",Employees:"⊛",Leave:"◇","Apply Leave":"◇",Payroll:"💳",Performance:"◉",Announcements:"📢",Reports:"◎",Onboarding:"🚀",Pricing:"💰","Platform Admin":"🛡","My Profile":"◐" };
   const LOCKED_BY_PLAN = !isSuperAdmin && userPlan==="starter" ? ["Analytics","AI Alerts","War Room","Payroll"] : [];
 
   if (boot) return (
@@ -2541,6 +2693,7 @@ export default function App() {
         {nav==="Analytics"    &&<AnalyticsPage analytics={analytics} allAtt={allAtt} allEmps={allEmps}/>}
         {nav==="AI Alerts"    &&<AIAlertsPage  allEmps={allEmps} allAtt={allAtt} analytics={analytics}/>}
         {nav==="War Room"     &&<WarRoomPage   allEmps={allEmps} allAtt={allAtt}/>}
+        {nav==="Live Tracker" &&<LiveTrackerPage allEmps={allEmps} allAtt={allAtt} isSuperAdmin={isSuperAdmin}/>}
         {(nav==="Attendance"||nav==="My Attendance")&&<AttPage isMgr={isMgr} todayRec={todayRec} att={att} mySum={mySum} onCheckIn={handleCheckIn} onCheckOut={handleCheckOut} busy={busy} allAtt={allAtt} allEmps={allEmps}/>}
         {nav==="Employees"    &&<EmpsPage      emps={emps.length?emps:allEmps} setModal={setModal} isAdmin={isAdmin} deactivateEmp={deactivateEmp} busy={busy} user={user}/>}
         {(nav==="Leave"||nav==="Apply Leave")&&<LeavePage isMgr={isMgr} leaves={leaves} myLeaves={myLeaves} pending={pending} bals={bals} reviewLeave={reviewLeave} cancelLeave={cancelLeave} setModal={setModal} busy={busy}/>}
