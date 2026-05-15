@@ -24,7 +24,7 @@ function clearTokens() {
 }
 
 async function call(path, opts = {}, retry = true) {
-  const h = { "Content-Type": "application/json", ...(opts.headers || {}) };
+  const h = { "Content-Type": "application/json", "Cache-Control": "no-cache", ...(opts.headers || {}) };
   if (_at) h["Authorization"] = `Bearer ${_at}`;
   let res;
   try {
@@ -2351,10 +2351,11 @@ export default function App() {
       }
     }
     try {
+      const ts = `&_=${Date.now()}`; // cache buster
       const [dData,aData,sData]=await Promise.all([
         api.get(isMgr?"/dashboard/admin":"/dashboard/me").catch(()=>null),
-        api.get(`/attendance/my?month=${new Date().getMonth()+1}&year=${new Date().getFullYear()}&limit=31`).catch(()=>({records:[]})),
-        api.get(`/attendance/my/summary?month=${new Date().getMonth()+1}&year=${new Date().getFullYear()}`).catch(()=>null),
+        api.get(`/attendance/my?month=${new Date().getMonth()+1}&year=${new Date().getFullYear()}&limit=31${ts}`).catch(()=>({records:[]})),
+        api.get(`/attendance/my/summary?month=${new Date().getMonth()+1}&year=${new Date().getFullYear()}${ts}`).catch(()=>null),
       ]);
       setDash(dData); setAtt(aData.records||[]); setMySum(sData?.summary||null);
       const [lData,lt,bl]=await Promise.all([
