@@ -1812,7 +1812,7 @@ function ModalHub({ modal, setModal, emps, ltypes, bals, user, depts, busy, appl
           <button
             className="btn btn-w"
             disabled={!f.reason||busy}
-            onClick={()=>{ close(); checkOut(null, f.reason); }}
+            onClick={()=>{ const reason = f.reason; close(); checkOut(null, reason); }}
           >
             {busy?<Spin/>:"Submit & Clock Out"}
           </button>
