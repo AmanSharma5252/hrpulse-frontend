@@ -1965,7 +1965,12 @@ function ModalHub({ modal, setModal, emps, ltypes, bals, user, depts, busy, appl
           <button
             className="btn btn-w"
             disabled={!f.reason||busy}
-            onClick={()=>{ close(); checkOut(null, f.reason); }}
+            onClick={()=>{
+              const reason = f.reason;
+              const selfie = modal.selfie || null;
+              close();
+              checkOut(selfie, reason);
+            }}
           >
             {busy?<Spin/>:"Submit & Clock Out"}
           </button>
@@ -2435,7 +2440,7 @@ export default function App() {
     setBusy(false);
   };
 
-  // ✅ NEW: checkOut now supports early checkout with reason
+  // ✅ checkOut supports early checkout with reason
   const checkOut=async(selfie=null, earlyReason=null)=>{
     setBusy(true);
     try {
@@ -2447,9 +2452,8 @@ export default function App() {
         try {
           d = await api.post("/attendance/checkout", body);
         } catch(apiErr) {
-          // Backend says early checkout required — show reason modal
           if (apiErr?.early_checkout) {
-            setModal({ type:"earlyCheckout", message: apiErr.message });
+            setModal({ type:"earlyCheckout", message: apiErr.message, selfie });
             setBusy(false); return;
           }
           throw apiErr;
@@ -2461,10 +2465,9 @@ export default function App() {
         const now=new Date();
         const todayAttRec = att.find(r=>r.date===todayStr());
         const mins = todayAttRec?.check_in ? Math.round((now-new Date(todayAttRec.check_in))/60000) : 0;
-        // Demo: check early checkout (8h = 480 mins)
         if (mins < 480 && !earlyReason) {
           const wH=Math.floor(mins/60), wM=mins%60, rH=Math.floor((480-mins)/60), rM=(480-mins)%60;
-          setModal({ type:"earlyCheckout", message:`You have only worked ${wH}h ${wM}m. Full shift is 8 hours (${rH}h ${rM}m remaining). Please provide a reason for early checkout.` });
+          setModal({ type:"earlyCheckout", message:`You have only worked ${wH}h ${wM}m. Full shift is 8 hours (${rH}h ${rM}m remaining). Please provide a reason for early checkout.`, selfie });
           setBusy(false); return;
         }
         setAtt(p=>p.map(r=>r.date===todayStr()?{...r,check_out:now.toISOString(),work_minutes:mins,early_checkout:mins<480,early_checkout_reason:earlyReason||null}:r));
