@@ -898,7 +898,7 @@ function AIAlertsPage({ allEmps, allAtt, analytics }) {
 
 // ─── PAYROLL PAGE ─────────────────────────────────────────────────────────────
 // ─── PAYROLL PAGE ─────────────────────────────────────────────────────────────
-function PayrollPage({ allEmps, allAtt, isAdmin }) {
+function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps }) {
   const now = new Date();
   const [month,setMonth] = useState(now.getMonth()+1);
   const [year,setYear]   = useState(now.getFullYear());
@@ -971,14 +971,20 @@ function PayrollPage({ allEmps, allAtt, isAdmin }) {
   const saveSalary = async () => {
     setSavingSalary(true);
     try {
-      await api.patch(`/employees/${sel}`, {
+      const salaryData = {
         base_salary: +salaryForm.base_salary || 0,
         hra_pct:     +salaryForm.hra_pct     || 40,
         ta_amount:   +salaryForm.ta_amount   || 0,
         pf_pct:      +salaryForm.pf_pct      || 12,
         tax_pct:     +salaryForm.tax_pct     || 10,
-      });
-      // Update local allEmps so payroll recalculates immediately
+      };
+      await api.patch(`/employees/${sel}`, salaryData);
+
+      // ← UPDATE local allEmps so payroll recalculates immediately
+      setAllEmps(prev => prev.map(e => 
+        e.id === sel ? { ...e, ...salaryData } : e
+      ));
+
       toast.success("Salary structure saved!");
       setEditingSalary(false);
     } catch(e) { toast.error(e.message); }
@@ -3063,7 +3069,7 @@ const handleCheckOut = ()=>{
         {(nav==="Attendance"||nav==="My Attendance")&&<AttPage isMgr={isMgr} todayRec={todayRec} att={att} mySum={mySum} onCheckIn={handleCheckIn} onCheckOut={handleCheckOut} busy={busy} allAtt={allAtt} allEmps={allEmps}/>}
         {nav==="Employees"    &&<EmpsPage      emps={emps.length?emps:allEmps} setModal={setModal} isAdmin={isAdmin} deactivateEmp={deactivateEmp} busy={busy} user={user}/>}
         {(nav==="Leave"||nav==="Apply Leave")&&<LeavePage isMgr={isMgr} leaves={leaves} myLeaves={myLeaves} pending={pending} bals={bals} reviewLeave={reviewLeave} cancelLeave={cancelLeave} setModal={setModal} busy={busy}/>}
-        {nav==="Payroll"      &&<PayrollPage   allEmps={allEmps} allAtt={allAtt} isAdmin={isAdmin}/>}
+        {nav==="Payroll"      &&<PayrollPage   allEmps={allEmps} allAtt={allAtt} isAdmin={isAdmin} setAllEmps={setAllEmps}/>}
         {nav==="Performance"  &&<PerfPage      user={user} isMgr={isMgr} emps={emps.length?emps:allEmps} tasks={tasks} updProg={updProg} setModal={setModal}/>}
         {nav==="Announcements"&&<AnnsPage      anns={anns} delAnn={delAnn} isAdmin={isAdmin}/>}
         {nav==="Reports"      &&<ReportsPage   leaves={leaves} dash={dash} allEmps={allEmps} analytics={analytics} allAtt={allAtt}/>}
