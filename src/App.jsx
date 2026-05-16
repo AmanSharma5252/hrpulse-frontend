@@ -969,23 +969,26 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps }) {
   };
 
 const saveSalary = async () => {
-    setSavingSalary(true);
-    try {
-      const salaryData = {
-        base_salary: salaryForm.base_salary !== "" && salaryForm.base_salary !== undefined ? Number(salaryForm.base_salary) : 0,
-        hra_pct:     salaryForm.hra_pct     !== "" && salaryForm.hra_pct     !== undefined ? Number(salaryForm.hra_pct)     : 0,
-        ta_amount:   salaryForm.ta_amount   !== "" && salaryForm.ta_amount   !== undefined ? Number(salaryForm.ta_amount)   : 0,
-        pf_pct:      salaryForm.pf_pct      !== "" && salaryForm.pf_pct      !== undefined ? Number(salaryForm.pf_pct)      : 0,
-        tax_pct:     salaryForm.tax_pct     !== "" && salaryForm.tax_pct     !== undefined ? Number(salaryForm.tax_pct)     : 0,
-      };
-      console.log("Sending salary:", JSON.stringify(salaryData));
-      await api.patch(`/employees/${sel}`, salaryData);
-      setAllEmps(prev => prev.map(e => e.id === sel ? { ...e, ...salaryData } : e));
-      toast.success("Salary structure saved!");
-      setEditingSalary(false);
-    } catch(e) { toast.error(e.message); }
-    setSavingSalary(false);
-  };
+  setSavingSalary(true);
+  try {
+    const salaryData = {
+      basic_salary:      Number(salaryForm.base_salary) || 0,
+      hra_pct:           Number(salaryForm.hra_pct)     || 0,
+      ta_amount:         Number(salaryForm.ta_amount)   || 0,
+      special_allowance: 0,
+      bonus:             0,
+    };
+    await api.patch(`/employees/${sel}/salary`, salaryData);
+    setAllEmps(prev => prev.map(e => e.id === sel
+      ? { ...e, base_salary: salaryData.basic_salary, hra_pct: salaryData.hra_pct, ta_amount: salaryData.ta_amount }
+      : e
+    ));
+    toast.success("Salary structure saved!");
+    setEditingSalary(false);
+  } catch(e) { toast.error(e.message); }
+  setSavingSalary(false);
+};
+
 
   const profile = sel ? (empProfiles[sel] || {}) : {};
 
