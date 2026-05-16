@@ -968,23 +968,19 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps }) {
     setEditingSalary(true);
   };
 
-  const saveSalary = async () => {
+const saveSalary = async () => {
     setSavingSalary(true);
     try {
       const salaryData = {
-        base_salary: +salaryForm.base_salary || 0,
-        hra_pct:     +salaryForm.hra_pct     || 40,
-        ta_amount:   +salaryForm.ta_amount   || 0,
-        pf_pct:      +salaryForm.pf_pct      || 12,
-        tax_pct:     +salaryForm.tax_pct     || 10,
+        base_salary: salaryForm.base_salary !== "" && salaryForm.base_salary !== undefined ? Number(salaryForm.base_salary) : 0,
+        hra_pct:     salaryForm.hra_pct     !== "" && salaryForm.hra_pct     !== undefined ? Number(salaryForm.hra_pct)     : 0,
+        ta_amount:   salaryForm.ta_amount   !== "" && salaryForm.ta_amount   !== undefined ? Number(salaryForm.ta_amount)   : 0,
+        pf_pct:      salaryForm.pf_pct      !== "" && salaryForm.pf_pct      !== undefined ? Number(salaryForm.pf_pct)      : 0,
+        tax_pct:     salaryForm.tax_pct     !== "" && salaryForm.tax_pct     !== undefined ? Number(salaryForm.tax_pct)     : 0,
       };
+      console.log("Sending salary:", JSON.stringify(salaryData));
       await api.patch(`/employees/${sel}`, salaryData);
-
-      // ← UPDATE local allEmps so payroll recalculates immediately
-      setAllEmps(prev => prev.map(e => 
-        e.id === sel ? { ...e, ...salaryData } : e
-      ));
-
+      setAllEmps(prev => prev.map(e => e.id === sel ? { ...e, ...salaryData } : e));
       toast.success("Salary structure saved!");
       setEditingSalary(false);
     } catch(e) { toast.error(e.message); }
