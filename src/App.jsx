@@ -587,7 +587,7 @@ function computeAnomalies(emps, allAtt) {
 }
 
 // ─── PAYROLL ENGINE ───────────────────────────────────────────────────────────
-function computePayroll(emp, attRecords, month, year) {
+function computePayroll(emp, attRecords, month, year, customSalary) {
   const days = new Date(year,month,0).getDate();
   const workingDays = Array.from({length:days},(_,i)=>new Date(year,month-1,i+1)).filter(d=>d.getDay()!==0&&d.getDay()!==6).length;
   const monthStr = `${year}-${String(month).padStart(2,"0")}`;
@@ -597,7 +597,8 @@ function computePayroll(emp, attRecords, month, year) {
   const late       = recs.filter(r=>r.status==="late").length;
   const absent     = Math.max(0, workingDays - present - onLeave);
   const totalHours = recs.reduce((s,r)=>s+(r.work_minutes||0),0)/60;
-  const baseSalary = emp.role==="admin"?200000:emp.role==="manager"?120000:emp.role==="hr"?90000:75000;
+  const defaultSalary = emp.role==="admin"?200000:emp.role==="manager"?120000:emp.role==="hr"?90000:75000;
+  const baseSalary = customSalary && customSalary > 0 ? customSalary : defaultSalary;
   const perDay     = Math.round(baseSalary/22);
   const absentDeduction = absent*perDay;
   const lateDeduction   = late * Math.round(perDay/2);
@@ -898,25 +899,25 @@ function AIAlertsPage({ allEmps, allAtt, analytics }) {
 
 // ─── PAYROLL PAGE ─────────────────────────────────────────────────────────────
 // ─── PAYROLL PAGE ─────────────────────────────────────────────────────────────
-function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps }) {
+function PayrollPage({ allEmps, allAtt }) {
   const now = new Date();
   const [month,setMonth] = useState(now.getMonth()+1);
   const [year,setYear]   = useState(now.getFullYear());
   const [sel,setSel]     = useState(null);
   const [search,setSearch]=useState("");
-  const [editingSalary, setEditingSalary] = useState(false);
-  const [salaryForm, setSalaryForm] = useState({});
-  const [savingSalary, setSavingSalary] = useState(false);
-  const [empProfiles, setEmpProfiles] = useState({});
+  const [salaries,setSalaries] = useState(()=>{
+    try { const v=localStorage.getItem("hp_salaries"); return v?JSON.parse(v):{};} catch{return {};}
+  });
+  const [editingSalary,setEditingSalary] = useState("");
 
-  // Load bank details for selected employee (admin only)
-  useEffect(()=>{
-    if(sel && isAdmin) {
-      api.get(`/employees/${sel}/profile`).then(d=>{
-        setEmpProfiles(p=>({...p,[sel]:d.profile||{}}));
-      }).catch(()=>{});
-    }
-  },[sel]);
+  const saveSalary=(empId,val)=>{
+    const updated={...salaries,[empId]:Number(val)};
+    setSalaries(updated);
+    try{localStorage.setItem("hp_salaries",JSON.stringify(updated));}catch{}
+  };
+
+  const emps = allEmps.filter(e=>e.isActive&&(search===""||e.name.toLowerCase().includes(search.toLowerCase())||e.dept.toLowerCase().includes(search.toLowerCase())));
+  const payrolls = emps.map(e=>({ emp:e, ...computePayroll(e,allAtt,month,year,salaries[e.id]) }));
 
   const computePayrollCustom = (emp, attRecords, month, year) => {
     const days = new Date(year,month,0).getDate();
@@ -931,10 +932,10 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps }) {
 
     // Use custom salary if set, otherwise 0 (admin must set)
     const baseSalary = emp.base_salary || 0;
-    const hraPct     = emp.hra_pct     || 40;
+    const hraPct     = emp.hra_pct     || 0;
     const taAmount   = emp.ta_amount   || 0;
-    const pfPct      = emp.pf_pct      || 12;
-    const taxPct     = emp.tax_pct     || 10;
+    const pfPct      = emp.pf_pct      || 0;
+    const taxPct     = emp.tax_pct     || 0;
 
     const perDay     = baseSalary > 0 ? Math.round(baseSalary / 22) : 0;
     const absentDeduction = absent * perDay;
@@ -1019,19 +1020,20 @@ const saveSalary = async () => {
           <div style={{ padding:"16px 20px", borderBottom:"1px solid var(--border)" }}>
             <div style={{ fontWeight:700,fontSize:14 }}>Payroll · {monthNames[month-1]} {year}</div>
           </div>
-          <div style={{ maxHeight:520, overflowY:"auto" }}>
+         <div style={{ maxHeight:520, overflowY:"auto" }}>
             {payrolls.map(({ emp, net, gross, deductions, present, absent, late })=>(
-              <div key={emp.id} className="row" style={{ padding:"12px 20px", cursor:"pointer", background:sel===emp.id?"var(--gd)":"", borderLeft:sel===emp.id?"3px solid var(--g)":"3px solid transparent" }} onClick={()=>{setSel(sel===emp.id?null:emp.id);setEditingSalary(false);}}>
+              <div key={emp.id} className="row" style={{ padding:"12px 20px", cursor:"pointer", background:sel===emp.id?"var(--gd)":"", borderLeft:sel===emp.id?"3px solid var(--g)":"3px solid transparent" }} onClick={()=>{setSel(sel===emp.id?null:emp.id);setEditingSalary(salaries[emp.id]||"");}}>
                 <Av emp={emp} size={36}/>
                 <div style={{ flex:1,minWidth:0 }}>
                   <div style={{ fontSize:13,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{emp.name}</div>
                   <div style={{ fontSize:10,color:"var(--text3)" }}>{emp.dept} · P:{present} L:{late} A:{absent}</div>
                 </div>
                 <div style={{ textAlign:"right",flexShrink:0 }}>
-                  {emp.base_salary ? <>
-                    <div style={{ fontSize:13,fontWeight:700,color:"var(--g)" }}>{rupee(net)}</div>
-                    <div style={{ fontSize:10,color:"#EF4444" }}>-{rupee(deductions)}</div>
-                  </> : <span style={{ fontSize:11,color:"#F59E0B" }}>⚠ Salary not set</span>}
+                  {net===0&&!salaries[emp.id]
+                    ? <div style={{ fontSize:11,color:"#F59E0B" }}>⚠ Salary not set</div>
+                    : <div style={{ fontSize:13,fontWeight:700,color:"var(--g)" }}>{rupee(net)}</div>
+                  }
+                  <div style={{ fontSize:10,color:"#EF4444" }}>-{rupee(deductions)}</div>
                 </div>
               </div>
             ))}
