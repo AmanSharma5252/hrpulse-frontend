@@ -1065,12 +1065,13 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps }) {
                       </div>
                     )}
                     {[
-                      ["Base Salary", rupee(selData.baseSalary)],
-                      ["HRA", `${selData.hraPct}% = ${rupee(selData.hra)}`],
-                      ["Travel Allowance", rupee(selData.taAmount)],
-                      ["PF Deduction", `${selData.pfPct}%`],
-                      ["Tax Deduction", `${selData.taxPct}%`],
-                    ].map(([k,v])=>(
+                      {[
+  ["Base Salary", rupee(selData.baseSalary)],
+  ["HRA", selData.baseSalary > 0 ? `${selData.hraPct}% = ${rupee(selData.hra)}` : "—"],
+  ["Travel Allowance", selData.baseSalary > 0 ? rupee(selData.taAmount) : "—"],
+  ["PF Deduction", selData.baseSalary > 0 ? `${selData.pfPct}%` : "—"],
+  ["Tax Deduction", selData.baseSalary > 0 ? `${selData.taxPct}%` : "—"],
+].map(([k,v])=>(
                       <div key={k} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid var(--border)",fontSize:12 }}>
                         <span style={{ color:"var(--text3)" }}>{k}</span>
                         <span style={{ color:"var(--text)",fontWeight:600,fontFamily:"var(--mono)" }}>{v}</span>
