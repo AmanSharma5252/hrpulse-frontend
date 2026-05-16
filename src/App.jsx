@@ -973,14 +973,14 @@ const saveSalary = async () => {
   setSavingSalary(true);
   try {
     const salaryData = {
-      basic_salary:      Number(salaryForm.base_salary) || 0,
-      hra_pct:           Number(salaryForm.hra_pct)     || 0,
-      ta_amount:         Number(salaryForm.ta_amount)   || 0,
-      special_allowance: 0,
-      bonus:             0,
-    };
+  base_salary: Number(salaryForm.base_salary) || 0,
+  hra_pct:     Number(salaryForm.hra_pct)     || 0,
+  ta_amount:   Number(salaryForm.ta_amount)   || 0,
+  pf_pct:      Number(salaryForm.pf_pct)      || 0,
+  tax_pct:     Number(salaryForm.tax_pct)     || 0,
+};
       // ✅ Fixed
-    await api.patch(`/payroll/employees/${sel}/salary`, salaryData);
+    await api.patch(`/employees/${sel}`, salaryData);
     setAllEmps(prev => prev.map(e => e.id === sel
       ? { ...e, base_salary: salaryData.basic_salary, hra_pct: salaryData.hra_pct, ta_amount: salaryData.ta_amount }
       : e
@@ -2081,7 +2081,7 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
   const saveProfile = async (data) => {
     setSaving(true); setSaveMsg("");
     try {
-      await api.patch("/auth/profile", data);
+     await api.patch(`/employees/${sel}`, salaryData);
       setSaveMsg("✓ Saved successfully!");
     } catch(e) { setSaveMsg("✗ " + e.message); }
     setSaving(false);
