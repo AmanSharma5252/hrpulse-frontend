@@ -960,10 +960,10 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps }) {
   const openSalaryEdit = (emp, data) => {
     setSalaryForm({
       base_salary: emp.base_salary || "",
-      hra_pct:     emp.hra_pct     || 40,
+      hra_pct:     emp.hra_pct     !== undefined ? emp.hra_pct : 40,
       ta_amount:   emp.ta_amount   || "",
-      pf_pct:      emp.pf_pct      || 12,
-      tax_pct:     emp.tax_pct     || 10,
+      pf_pct:      emp.pf_pct      !== undefined ? emp.pf_pct  : 12,
+      tax_pct:     emp.tax_pct     !== undefined ? emp.tax_pct : 10,
     });
     setEditingSalary(true);
   };
