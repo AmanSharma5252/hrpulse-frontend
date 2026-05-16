@@ -978,7 +978,8 @@ const saveSalary = async () => {
       special_allowance: 0,
       bonus:             0,
     };
-    await api.patch(`/employees/${sel}/salary`, salaryData);
+      // ✅ Fixed
+    await api.patch(`/payroll/employees/${sel}/salary`, salaryData);
     setAllEmps(prev => prev.map(e => e.id === sel
       ? { ...e, base_salary: salaryData.basic_salary, hra_pct: salaryData.hra_pct, ta_amount: salaryData.ta_amount }
       : e
