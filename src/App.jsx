@@ -982,7 +982,7 @@ const saveSalary = async () => {
       // ✅ Fixed
     await api.patch(`/employees/${sel}`, salaryData);
     setAllEmps(prev => prev.map(e => e.id === sel
-      ? { ...e, base_salary: salaryData.base_salary, hra_pct: salaryData.hra_pct, ta_amount: salaryData.ta_amount }
+      ? { ...e, base_salary: salaryData.base_salary, hra_pct: salaryData.hra_pct, ta_amount: salaryData.ta_amount, pf_pct: salaryData.pf_pct, tax_pct: salaryData.tax_pct }
       : e
     ));
     toast.success("Salary structure saved!");
