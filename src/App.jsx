@@ -899,25 +899,16 @@ function AIAlertsPage({ allEmps, allAtt, analytics }) {
 
 // ─── PAYROLL PAGE ─────────────────────────────────────────────────────────────
 // ─── PAYROLL PAGE ─────────────────────────────────────────────────────────────
-function PayrollPage({ allEmps, allAtt }) {
+function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps }) {
   const now = new Date();
   const [month,setMonth] = useState(now.getMonth()+1);
   const [year,setYear]   = useState(now.getFullYear());
   const [sel,setSel]     = useState(null);
-  const [search,setSearch]=useState("");
-  const [salaries,setSalaries] = useState(()=>{
-    try { const v=localStorage.getItem("hp_salaries"); return v?JSON.parse(v):{};} catch{return {};}
   });
-  const [editingSalary,setEditingSalary] = useState("");
-
-  const saveSalary=(empId,val)=>{
-    const updated={...salaries,[empId]:Number(val)};
-    setSalaries(updated);
-    try{localStorage.setItem("hp_salaries",JSON.stringify(updated));}catch{}
-  };
-
-  const emps = allEmps.filter(e=>e.isActive&&(search===""||e.name.toLowerCase().includes(search.toLowerCase())||e.dept.toLowerCase().includes(search.toLowerCase())));
-  const payrolls = emps.map(e=>({ emp:e, ...computePayroll(e,allAtt,month,year,salaries[e.id]) }));
+  const [editingSalary,setEditingSalary] = useState(false);
+  const [salaryForm,setSalaryForm] = useState({});
+  const [savingSalary,setSavingSalary] = useState(false);
+  const [empProfiles,setEmpProfiles] = useState({});
 
   const computePayrollCustom = (emp, attRecords, month, year) => {
     const days = new Date(year,month,0).getDate();
@@ -2081,7 +2072,7 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
   const saveProfile = async (data) => {
     setSaving(true); setSaveMsg("");
     try {
-     await api.patch(`/employees/${sel}`, salaryData);
+     await api.patch("/auth/profile", data);
       setSaveMsg("✓ Saved successfully!");
     } catch(e) { setSaveMsg("✗ " + e.message); }
     setSaving(false);
