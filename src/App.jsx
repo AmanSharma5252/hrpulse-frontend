@@ -904,7 +904,6 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps }) {
   const [month,setMonth] = useState(now.getMonth()+1);
   const [year,setYear]   = useState(now.getFullYear());
   const [sel,setSel]     = useState(null);
-  });
   const [editingSalary,setEditingSalary] = useState(false);
   const [salaryForm,setSalaryForm] = useState({});
   const [savingSalary,setSavingSalary] = useState(false);
