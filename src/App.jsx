@@ -904,6 +904,7 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps }) {
   const [month,setMonth] = useState(now.getMonth()+1);
   const [year,setYear]   = useState(now.getFullYear());
   const [sel,setSel]     = useState(null);
+  const [search,setSearch] = useState("");
   const [editingSalary,setEditingSalary] = useState(false);
   const [salaryForm,setSalaryForm] = useState({});
   const [savingSalary,setSavingSalary] = useState(false);
@@ -1012,14 +1013,14 @@ const saveSalary = async () => {
           </div>
          <div style={{ maxHeight:520, overflowY:"auto" }}>
             {payrolls.map(({ emp, net, gross, deductions, present, absent, late })=>(
-              <div key={emp.id} className="row" style={{ padding:"12px 20px", cursor:"pointer", background:sel===emp.id?"var(--gd)":"", borderLeft:sel===emp.id?"3px solid var(--g)":"3px solid transparent" }} onClick={()=>{setSel(sel===emp.id?null:emp.id);setEditingSalary(salaries[emp.id]||"");}}>
+              <div key={emp.id} className="row" style={{ padding:"12px 20px", cursor:"pointer", background:sel===emp.id?"var(--gd)":"", borderLeft:sel===emp.id?"3px solid var(--g)":"3px solid transparent" }} onClick={()=>{setSel(sel===emp.id?null:emp.id);setEditingSalary(false);}}>
                 <Av emp={emp} size={36}/>
                 <div style={{ flex:1,minWidth:0 }}>
                   <div style={{ fontSize:13,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{emp.name}</div>
                   <div style={{ fontSize:10,color:"var(--text3)" }}>{emp.dept} · P:{present} L:{late} A:{absent}</div>
                 </div>
                 <div style={{ textAlign:"right",flexShrink:0 }}>
-                  {net===0&&!salaries[emp.id]
+                  {emp.base_salary===0
                     ? <div style={{ fontSize:11,color:"#F59E0B" }}>⚠ Salary not set</div>
                     : <div style={{ fontSize:13,fontWeight:700,color:"var(--g)" }}>{rupee(net)}</div>
                   }
@@ -1042,7 +1043,7 @@ const saveSalary = async () => {
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
                   <div style={{ fontWeight:700,fontSize:14,color:"var(--text)" }}>💰 Salary Structure</div>
                   {!editingSalary
-                    ? <button className="btn btn-s" style={{ fontSize:11,padding:"4px 14px" }} onClick={()=>openSalaryEdit(selData.emp,selData)}>✏ Edit</button>
+                    ? <button className="btn btn-s" style={{ fontSize:11,padding:"4px 14px" }} onClick={()=>openSalaryEdit(selData.emp)}>✏ Edit</button>
                     : <div style={{ display:"flex",gap:6 }}>
                         <button className="btn btn-g" style={{ fontSize:11,padding:"4px 12px" }} onClick={()=>setEditingSalary(false)}>Cancel</button>
                         <button className="btn btn-p" style={{ fontSize:11,padding:"4px 14px" }} onClick={saveSalary} disabled={savingSalary}>{savingSalary?<Spin/>:"Save"}</button>
