@@ -2053,22 +2053,23 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
   });
 
   useEffect(() => {
-    api.get("/auth/me").then(d => {
-      const u = d.user || {};
-      setBankForm({
-        bank_account_number: u.bank_account_number || "",
-        bank_ifsc:           u.bank_ifsc || "",
-        bank_name:           u.bank_name || "",
-        bank_account_holder: u.bank_account_holder || "",
-      });
-      setPersonalForm({
-        address:         u.address || "",
-        pan_number:      u.pan_number || "",
-        aadhaar_number:  u.aadhaar_number || "",
-      });
-    }).catch(() => {});
-  }, []);
-
+  // Load saved profile data from the dedicated profile endpoint
+  api.get(`/employees/${user.id}/profile`).then(d => {
+    const p = d.profile || {};
+    setBankForm({
+      bank_account_number: p.bank_account_number || "",
+      bank_ifsc:           p.bank_ifsc           || "",
+      bank_name:           p.bank_name           || "",
+      bank_account_holder: p.bank_account_holder || "",
+    });
+    setPersonalForm(prev => ({
+      ...prev,
+      address:        p.address        || "",
+      pan_number:     p.pan_number     || "",
+      aadhaar_number: p.aadhaar_number || "",
+    }));
+  }).catch(() => {});
+}, [user.id]);
  const saveProfile = async (data) => {
   setSaving(true); setSaveMsg("");
   try {
