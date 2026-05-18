@@ -2072,7 +2072,7 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
   const saveProfile = async (data) => {
     setSaving(true); setSaveMsg("");
     try {
-     await api.patch("/auth/profile", data);
+     await api.patch(`/employees/${user.id}`, data);
       setSaveMsg("✓ Saved successfully!");
     } catch(e) { setSaveMsg("✗ " + e.message); }
     setSaving(false);
