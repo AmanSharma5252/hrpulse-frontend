@@ -2069,14 +2069,23 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
     }).catch(() => {});
   }, []);
 
-  const saveProfile = async (data) => {
-    setSaving(true); setSaveMsg("");
-    try {
-     await api.patch(`/employees/${user.id}`, data);
-      setSaveMsg("✓ Saved successfully!");
-    } catch(e) { setSaveMsg("✗ " + e.message); }
-    setSaving(false);
-  };
+ const saveProfile = async (data) => {
+  setSaving(true); setSaveMsg("");
+  try {
+    // Filter out undefined but keep empty strings so backend accepts the call
+    const payload = Object.fromEntries(
+      Object.entries(data).filter(([_, v]) => v !== undefined)
+    );
+    if (!Object.keys(payload).length) {
+      setSaveMsg("✗ Nothing to save.");
+      setSaving(false);
+      return;
+    }
+    await api.patch(`/employees/${user.id}`, payload);
+    setSaveMsg("✓ Saved successfully!");
+  } catch(e) { setSaveMsg("✗ " + e.message); }
+  setSaving(false);
+};
 
   const go=async()=>{ if(!cur||!nxt){setMsg("Fill all fields.");return;} if(nxt!==cnf){setMsg("Passwords don't match.");return;} if(nxt.length<6){setMsg("Min 6 chars.");return;} const ok=await changePw(cur,nxt); if(ok){setMsg("✓ Updated!");setCur("");setNxt("");setCnf("");} };
 
