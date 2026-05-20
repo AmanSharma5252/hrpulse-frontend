@@ -1146,16 +1146,16 @@ URL.revokeObjectURL(url);
                   <div style={{ fontWeight:800,fontSize:15,color:"#fff" }}>{selData.emp.name}</div>
                   <div style={{ fontSize:11,color:"var(--text3)" }}>{selData.emp.title||selData.emp.role} · {selData.emp.dept}</div>
                 </div>
-               onClick={()=>{
+               <button className="btn btn-g" style={{ marginLeft:"auto",fontSize:11 }} onClick={()=>{
   const email = window.prompt(`Send payslip to ${selData.emp.name}\nEnter their Gmail address:`, selData.emp.email||"");
   if (email && email.includes("@")) {
     toast.success(`📧 Payslip sent to ${email}!`);
   } else if (email !== null) {
     toast.error("Invalid email address");
   }
-}}
+}}>📧 Send</button>
               </div>
-
+        
               {/* Bank details (admin view) */}
               {isAdmin && (
                 <div style={{ background:"rgba(62,207,142,0.06)",border:"1px solid rgba(62,207,142,0.15)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12 }}>
