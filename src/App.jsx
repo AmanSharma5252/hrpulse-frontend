@@ -1014,8 +1014,7 @@ const saveSalary = async () => {
   payrolls.forEach(({emp,baseSalary,hra,ta,gross,pf,tax,absentDeduction,lateDeduction,net,present,absent,late})=>{
     rows.push([emp.name,emp.dept,emp.role,baseSalary,hra,ta,gross,pf,tax,absentDeduction,lateDeduction,net,present,absent,late]);
   });
-  const csv = rows.map(r=>r.join(',')).join('
-');
+  const csv = rows.map(r=>r.join(',')).join('\n');
   const blob = new Blob([csv],{type:'text/csv'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
