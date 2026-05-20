@@ -2165,8 +2165,6 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
             <Inp label="Account Number" val={bankForm.bank_account_number} onChange={v=>setBankForm(p=>({...p,bank_account_number:v}))} placeholder="Enter account number" mono={true}/>
             <Inp label="IFSC Code" val={bankForm.bank_ifsc} onChange={v=>setBankForm(p=>({...p,bank_ifsc:v.toUpperCase()}))} placeholder="e.g. SBIN0001234" mono={true}/>
           </div>
-          <Inp label="Account Holder Name" val={bankForm.bank_account_holder} onChange={v=>setBankForm(p=>({...p,bank_account_holder:v}))} placeholder="As per bank records"/>
-          <Inp label="Bank Name" val={bankForm.bank_name} onChange={v=>setBankForm(p=>({...p,bank_name:v}))} placeholder="e.g. State Bank of India"/>
           <div className="g2">
             <Inp label="Account Number" val={bankForm.bank_account_number} onChange={v=>setBankForm(p=>({...p,bank_account_number:v}))} placeholder="Enter account number" mono={true}/>
             <Inp label="IFSC Code" val={bankForm.bank_ifsc} onChange={v=>setBankForm(p=>({...p,bank_ifsc:v.toUpperCase()}))} placeholder="e.g. SBIN0001234" mono={true}/>
