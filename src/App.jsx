@@ -985,6 +985,13 @@ const saveSalary = async () => {
 
   const profile = sel ? (empProfiles[sel] || {}) : {};
 
+  useEffect(() => {
+    if (empProfiles[sel]) return;
+    api.get(`/employees/${sel}/profile`).then(d => {
+      if (d?.profile) setEmpProfiles(prev => ({...prev, [sel]: d.profile}));
+    }).catch(() => {});
+  }, [sel]);
+
   return (
     <div className="fu">
       <div className="g4" style={{ marginBottom:20 }}>
