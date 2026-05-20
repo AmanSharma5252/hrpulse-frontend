@@ -1018,8 +1018,11 @@ const saveSalary = async () => {
   const blob = new Blob([csv],{type:'text/csv'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href=url; a.download=`payroll_${monthNames[month-1]}_${year}.csv`; a.click();
-  URL.revokeObjectURL(url);
+ a.href=url; a.download=`payroll_${monthNames[month-1]}_${year}.csv`;
+document.body.appendChild(a);
+a.click();
+document.body.removeChild(a);
+URL.revokeObjectURL(url);
   toast.success('Payroll CSV downloaded!');
 }}>⬇ Export CSV</button>
         <button className="btn btn-g" onClick={()=>toast.success("Payslips sent!")}>📧 Send Payslips</button>
