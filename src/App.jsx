@@ -1770,7 +1770,32 @@ function AttPage({ isMgr, todayRec, att, mySum, onCheckIn, onCheckOut, busy, all
             <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
               {["all","present","late","absent","on-leave"].map(f=><button key={f} className={`tab ${filter===f?"on":""}`} onClick={()=>setFilter(f)} style={{ textTransform:"capitalize" }}>{f}</button>)}
             </div>
-            <button className="btn btn-g" style={{ marginLeft:"auto",fontSize:11 }} onClick={()=>toast.success("Attendance report exported!")}>⬇ Export</button>
+            <button className="btn btn-g" style={{ marginLeft:"auto",fontSize:11 }} onClick={()=>{
+  const rows = [['Employee','Department','Status','Clock In','Clock Out','Worked (mins)','GPS','Selfie']];
+  (team?.records||[]).forEach(r=>{
+    rows.push([
+      r.employee?.name||"?",
+      r.employee?.department||"?",
+      r.status||"absent",
+      r.check_in ? new Date(r.check_in).toLocaleTimeString("en-IN") : "—",
+      r.check_out ? new Date(r.check_out).toLocaleTimeString("en-IN") : "—",
+      r.work_minutes||0,
+      r.latitude ? "Yes" : "No",
+      r.selfie_in ? "Yes" : "No",
+    ]);
+  });
+  const csv = rows.map(r=>r.join(',')).join('\n');
+  const blob = new Blob(["\uFEFF"+csv],{type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `attendance_${date}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast.success('Attendance CSV downloaded!');
+}}>⬇ Export</button>
           </div>
           {team&&<div style={{ display:"flex",gap:10,marginBottom:14,flexWrap:"wrap" }}>
             {[["Present",team.summary.present,"var(--g)"],["Late",team.summary.late,"#F59E0B"],["Absent",team.summary.absent,"#EF4444"],["On Leave",team.summary.on_leave,"#8B5CF6"]].map(([l,v,c])=>(
