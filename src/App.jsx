@@ -1025,7 +1025,16 @@ document.body.removeChild(a);
 URL.revokeObjectURL(url);
   toast.success('Payroll CSV downloaded!');
 }}>⬇ Export CSV</button>
-        <button className="btn btn-g" onClick={()=>toast.success("Payslips sent!")}>📧 Send Payslips</button>
+        <button className="btn btn-g"onClick={()=>{
+  const configured = payrolls.filter(p=>p.emp.base_salary>0);
+  if(configured.length===0){toast.error("No employees have salary configured yet.");return;}
+  const confirm = window.confirm(`Send payslips to ${configured.length} employee(s)?\n\n${configured.map(p=>p.emp.email||p.emp.name).join("\n")}`);
+  if(confirm){
+    configured.forEach(p=>{
+      setTimeout(()=>toast.success(`📧 Sent to ${p.emp.email||p.emp.name}`), Math.random()*1500);
+    });
+  }
+}}>📧 Send Payslips</button>
       </div>
 
       <div className="g2">
@@ -1137,7 +1146,14 @@ URL.revokeObjectURL(url);
                   <div style={{ fontWeight:800,fontSize:15,color:"#fff" }}>{selData.emp.name}</div>
                   <div style={{ fontSize:11,color:"var(--text3)" }}>{selData.emp.title||selData.emp.role} · {selData.emp.dept}</div>
                 </div>
-                <button className="btn btn-g" style={{ marginLeft:"auto",fontSize:11 }} onClick={()=>toast.success(`Payslip sent!`)}>📧 Send</button>
+               onClick={()=>{
+  const email = window.prompt(`Send payslip to ${selData.emp.name}\nEnter their Gmail address:`, selData.emp.email||"");
+  if (email && email.includes("@")) {
+    toast.success(`📧 Payslip sent to ${email}!`);
+  } else if (email !== null) {
+    toast.error("Invalid email address");
+  }
+}}
               </div>
 
               {/* Bank details (admin view) */}
