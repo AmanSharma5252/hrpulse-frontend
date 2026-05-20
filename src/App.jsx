@@ -1009,7 +1009,20 @@ const saveSalary = async () => {
         <select value={year} onChange={e=>setYear(+e.target.value)} style={{ width:100 }}>
           {[2024,2025,2026].map(y=><option key={y}>{y}</option>)}
         </select>
-        <button className="btn btn-p" style={{ marginLeft:"auto" }} onClick={()=>toast.success("Payroll report exported!")}>⬇ Export CSV</button>
+        <button className="btn btn-p" style={{ marginLeft:"auto" }} onClick={()=>{
+  const rows = [['Employee','Department','Role','Base Salary','HRA','TA','Gross','PF','Tax','Absent Ded','Late Ded','Net Pay','Present','Absent','Late']];
+  payrolls.forEach(({emp,baseSalary,hra,ta,gross,pf,tax,absentDeduction,lateDeduction,net,present,absent,late})=>{
+    rows.push([emp.name,emp.dept,emp.role,baseSalary,hra,ta,gross,pf,tax,absentDeduction,lateDeduction,net,present,absent,late]);
+  });
+  const csv = rows.map(r=>r.join(',')).join('
+');
+  const blob = new Blob([csv],{type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=`payroll_${monthNames[month-1]}_${year}.csv`; a.click();
+  URL.revokeObjectURL(url);
+  toast.success('Payroll CSV downloaded!');
+}}>⬇ Export CSV</button>
         <button className="btn btn-g" onClick={()=>toast.success("Payslips sent!")}>📧 Send Payslips</button>
       </div>
 
