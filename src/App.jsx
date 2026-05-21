@@ -1328,12 +1328,7 @@ function LiveTrackerPage({ allEmps, allAtt, isSuperAdmin }) {
     if (filter === "out") return !!a.check_out;
     return true;
 });
-    if (filter === "all") return true;
-    if (filter === "in") return a.check_in && !a.check_out;
-    if (filter === "out") return !!a.check_out;
-    return true;
-  });
-
+    
   useEffect(() => {
     if (mapInstanceRef.current) return;
     const link = document.createElement("link");
