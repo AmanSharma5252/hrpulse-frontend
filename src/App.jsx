@@ -1718,10 +1718,16 @@ function AttPage({ isMgr, todayRec, att, mySum, onCheckIn, onCheckOut, busy, all
     if(!isMgr)return;
     const recs=allAtt.filter(a=>a.date===date);
     const empMap=Object.fromEntries(allEmps.map(e=>[e.id,e]));
-    setTeam({
-  records: recs.filter(r=>empMap[r.employee_id]).map(r=>({...r,employee:{name:empMap[r.employee_id]?.name||"?",department:empMap[r.employee_id]?.dept||"?",avatar_initials:empMap[r.employee_id]?.avatar||"?"}})),
-      const knownRecs = recs.filter(r=>empMap[r.employee_id]); setTeam({   records: knownRecs.map(r=>({...r,employee:{name:empMap[r.employee_id]?.name||"?",department:empMap[r.employee_id]?.dept||"?",avatar_initials:empMap[r.employee_id]?.avatar||"?"}})),   summary:{ present:knownRecs.filter(r=>r.status==="present").length, late:knownRecs.filter(r=>r.status==="late").length, absent:allEmps.filter(e=>e.isActive).length-knownRecs.length, on_leave:knownRecs.filter(r=>r.status==="on-leave").length }, });
-    });
+    useEffect(()=>{
+  if(!isMgr)return;
+  const recs=allAtt.filter(a=>a.date===date);
+  const empMap=Object.fromEntries(allEmps.map(e=>[e.id,e]));
+  const knownRecs=recs.filter(r=>empMap[r.employee_id]);
+  setTeam({
+    records: knownRecs.map(r=>({...r,employee:{name:empMap[r.employee_id]?.name||"?",department:empMap[r.employee_id]?.dept||"?",avatar_initials:empMap[r.employee_id]?.avatar||"?"}})),
+    summary:{ present:knownRecs.filter(r=>r.status==="present").length, late:knownRecs.filter(r=>r.status==="late").length, absent:allEmps.filter(e=>e.isActive).length-knownRecs.length, on_leave:knownRecs.filter(r=>r.status==="on-leave").length },
+  });
+},[date,isMgr,allAtt,allEmps]);
   },[date,isMgr,allAtt,allEmps]);
 
   return (
