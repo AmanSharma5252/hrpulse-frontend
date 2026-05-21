@@ -1728,7 +1728,6 @@ function AttPage({ isMgr, todayRec, att, mySum, onCheckIn, onCheckOut, busy, all
     summary:{ present:knownRecs.filter(r=>r.status==="present").length, late:knownRecs.filter(r=>r.status==="late").length, absent:allEmps.filter(e=>e.isActive).length-knownRecs.length, on_leave:knownRecs.filter(r=>r.status==="on-leave").length },
   });
 },[date,isMgr,allAtt,allEmps]);
-  },[date,isMgr,allAtt,allEmps]);
 
   return (
     <div className="fu">
