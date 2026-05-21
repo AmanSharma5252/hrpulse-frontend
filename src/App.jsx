@@ -1710,6 +1710,7 @@ function AnalyticsPage({ analytics, allAtt, allEmps }) {
 }
 
 // ─── ATTENDANCE PAGE ──────────────────────────────────────────────────────────
+// ─── ATTENDANCE PAGE ──────────────────────────────────────────────────────────
 function AttPage({ isMgr, todayRec, att, mySum, onCheckIn, onCheckOut, busy, allAtt, allEmps }) {
   const [date,setDate]=useState(todayStr()); const [filter,setFilter]=useState("all"); const [team,setTeam]=useState(null);
   const last14=Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-13+i);const k=d.toISOString().split("T")[0];return{k,rec:att.find(r=>r.date===k),day:d.toLocaleDateString("en-IN",{weekday:"short"})};});
@@ -1718,16 +1719,12 @@ function AttPage({ isMgr, todayRec, att, mySum, onCheckIn, onCheckOut, busy, all
     if(!isMgr)return;
     const recs=allAtt.filter(a=>a.date===date);
     const empMap=Object.fromEntries(allEmps.map(e=>[e.id,e]));
-    useEffect(()=>{
-  if(!isMgr)return;
-  const recs=allAtt.filter(a=>a.date===date);
-  const empMap=Object.fromEntries(allEmps.map(e=>[e.id,e]));
-  const knownRecs=recs.filter(r=>empMap[r.employee_id]);
-  setTeam({
-    records: knownRecs.map(r=>({...r,employee:{name:empMap[r.employee_id]?.name||"?",department:empMap[r.employee_id]?.dept||"?",avatar_initials:empMap[r.employee_id]?.avatar||"?"}})),
-    summary:{ present:knownRecs.filter(r=>r.status==="present").length, late:knownRecs.filter(r=>r.status==="late").length, absent:allEmps.filter(e=>e.isActive).length-knownRecs.length, on_leave:knownRecs.filter(r=>r.status==="on-leave").length },
-  });
-},[date,isMgr,allAtt,allEmps]);
+    const knownRecs=recs.filter(r=>empMap[r.employee_id]);
+    setTeam({
+      records: knownRecs.map(r=>({...r,employee:{name:empMap[r.employee_id]?.name||"?",department:empMap[r.employee_id]?.dept||"?",avatar_initials:empMap[r.employee_id]?.avatar||"?"}})),
+      summary:{ present:knownRecs.filter(r=>r.status==="present").length, late:knownRecs.filter(r=>r.status==="late").length, absent:allEmps.filter(e=>e.isActive).length-knownRecs.length, on_leave:knownRecs.filter(r=>r.status==="on-leave").length },
+    });
+  },[date,isMgr,allAtt,allEmps]);
 
   return (
     <div className="fu">
@@ -1793,31 +1790,31 @@ function AttPage({ isMgr, todayRec, att, mySum, onCheckIn, onCheckOut, busy, all
               {["all","present","late","absent","on-leave"].map(f=><button key={f} className={`tab ${filter===f?"on":""}`} onClick={()=>setFilter(f)} style={{ textTransform:"capitalize" }}>{f}</button>)}
             </div>
             <button className="btn btn-g" style={{ marginLeft:"auto",fontSize:11 }} onClick={()=>{
-  const rows = [['Employee','Department','Status','Clock In','Clock Out','Worked (mins)','GPS','Selfie']];
-  (team?.records||[]).forEach(r=>{
-    rows.push([
-      r.employee?.name||"?",
-      r.employee?.department||"?",
-      r.status||"absent",
-      r.check_in ? new Date(r.check_in).toLocaleTimeString("en-IN") : "—",
-      r.check_out ? new Date(r.check_out).toLocaleTimeString("en-IN") : "—",
-      r.work_minutes||0,
-      r.latitude ? "Yes" : "No",
-      r.selfie_in ? "Yes" : "No",
-    ]);
-  });
-  const csv = rows.map(r=>r.join(',')).join('\n');
-  const blob = new Blob(["\uFEFF"+csv],{type:'text/csv;charset=utf-8'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `attendance_${date}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  toast.success('Attendance CSV downloaded!');
-}}>⬇ Export</button>
+              const rows = [['Employee','Department','Status','Clock In','Clock Out','Worked (mins)','GPS','Selfie']];
+              (team?.records||[]).forEach(r=>{
+                rows.push([
+                  r.employee?.name||"?",
+                  r.employee?.department||"?",
+                  r.status||"absent",
+                  r.check_in ? new Date(r.check_in).toLocaleTimeString("en-IN") : "—",
+                  r.check_out ? new Date(r.check_out).toLocaleTimeString("en-IN") : "—",
+                  r.work_minutes||0,
+                  r.latitude ? "Yes" : "No",
+                  r.selfie_in ? "Yes" : "No",
+                ]);
+              });
+              const csv = rows.map(r=>r.join(',')).join('\n');
+              const blob = new Blob(["\uFEFF"+csv],{type:'text/csv;charset=utf-8'});
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `attendance_${date}.csv`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+              toast.success('Attendance CSV downloaded!');
+            }}>⬇ Export</button>
           </div>
           {team&&<div style={{ display:"flex",gap:10,marginBottom:14,flexWrap:"wrap" }}>
             {[["Present",team.summary.present,"var(--g)"],["Late",team.summary.late,"#F59E0B"],["Absent",team.summary.absent,"#EF4444"],["On Leave",team.summary.on_leave,"#8B5CF6"]].map(([l,v,c])=>(
@@ -1848,7 +1845,6 @@ function AttPage({ isMgr, todayRec, att, mySum, onCheckIn, onCheckOut, busy, all
     </div>
   );
 }
-
 // ─── EMPLOYEES PAGE ───────────────────────────────────────────────────────────
 function EmpsPage({ emps, setModal, isAdmin, deactivateEmp, busy, user }) {
   const [q,setQ]=useState(""); const [dept,setDept]=useState("all"); const [rf,setRf]=useState("all"); const [sel,setSel]=useState(null); const [showInactive,setShowInactive]=useState(false);
