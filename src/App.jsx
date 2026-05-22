@@ -2758,16 +2758,17 @@ export default function App() {
       setLeaves((lData.requests||[]).map(lNorm));
       setLtypes(lt.leave_types||[]);
       setBals(bl.balances||[]);
+     // Always load employees so attendance can match records for any role
+      const eData = await api.get("/employees?limit=1000&is_active=all").catch(()=>({employees:[]}));
+      const empList = (eData.employees||[]).map(eNorm);
+      if(empList.length) { setEmps(empList); setAllEmps(empList); }
+
       if (isMgr || isSuperAdmin) {
-        const [eData,anal,coData,attData]=await Promise.all([
-          api.get("/employees?limit=1000&is_active=all").catch(()=>({employees:[]})),
+        const [anal,coData,attData]=await Promise.all([
           api.get("/analytics/overview").catch(()=>null),
           isSuperAdmin?api.get("/companies").catch(()=>({companies:[]})):Promise.resolve({companies:[]}),
           api.get(`/attendance/team?date=${new Date().toISOString().split("T")[0]}`).catch(()=>({records:[]})),
         ]);
-        const empList=(eData.employees||[]).map(eNorm);
-        setEmps(empList);
-        if(empList.length) setAllEmps(empList);
         setAn(anal);
         if(isSuperAdmin&&coData.companies?.length) setCompanies(coData.companies);
         if(attData.records?.length) setAllAtt(prev=>{
