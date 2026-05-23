@@ -2104,6 +2104,12 @@ function ReportsPage({ leaves, dash, allEmps, analytics, allAtt }) {
 
 // ─── PROFILE PAGE ─────────────────────────────────────────────────────────────
 // ─── PROFILE PAGE ─────────────────────────────────────────────────────────────
+const Inp = ({label, val, onChange, placeholder, type="text", mono=false}) => (
+    <F label={label}>
+      <input type={type} value={val} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+        style={mono?{fontFamily:"var(--mono)",letterSpacing:1}:{}}/>
+    </F>
+  );
 function ProfilePage({ user, mySum, bals, changePw, busy }) {
   const [cur,setCur]=useState(""); const [nxt,setNxt]=useState(""); const [cnf,setCnf]=useState(""); const [msg,setMsg]=useState("");
   const [tab, setTab] = useState("personal");
@@ -2155,12 +2161,7 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
 
   const go=async()=>{ if(!cur||!nxt){setMsg("Fill all fields.");return;} if(nxt!==cnf){setMsg("Passwords don't match.");return;} if(nxt.length<6){setMsg("Min 6 chars.");return;} const ok=await changePw(cur,nxt); if(ok){setMsg("✓ Updated!");setCur("");setNxt("");setCnf("");} };
 
-  const Inp = ({label, val, onChange, placeholder, type="text", mono=false}) => (
-    <F label={label}>
-      <input type={type} value={val} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
-        style={mono?{fontFamily:"var(--mono)",letterSpacing:1}:{}}/>
-    </F>
-  );
+  
 
   return (
     <div className="fu" style={{ maxWidth:680 }}>
