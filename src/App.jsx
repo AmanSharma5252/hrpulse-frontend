@@ -2769,11 +2769,11 @@ export default function App() {
         ]);
         setAn(anal);
         if(isSuperAdmin&&coData.companies?.length) setCompanies(coData.companies);
-        if(attData.records?.length) setAllAtt(prev=>{
-          const today = new Date().toISOString().split("T")[0];
-          const filtered = prev.filter(r=>r.date!==today);
-          return [...filtered, ...attData.records];
-        });
+        const today = new Date().toISOString().split("T")[0];
+setAllAtt(prev => {
+  const filtered = prev.filter(r => r.date !== today);
+  return [...filtered, ...(attData.records || [])];
+});
       }
     } catch {}
   }
