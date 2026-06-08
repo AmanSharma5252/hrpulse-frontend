@@ -595,7 +595,17 @@ function computePayroll(emp, attRecords, month, year, customSalary) {
   const present    = recs.filter(r=>["present","late"].includes(r.status)).length;
   const onLeave    = recs.filter(r=>r.status==="on-leave").length;
   const late       = recs.filter(r=>r.status==="late").length;
-  const absent     = Math.max(0, workingDays - present - onLeave);
+  const monthStart = new Date(year, month - 1, 1);
+const hireDate   = emp.hireDate ? new Date(emp.hireDate) : monthStart;
+const countFrom  = hireDate > monthStart ? hireDate : monthStart;
+const today      = new Date();
+const monthEnd   = new Date(year, month, 0);
+const effectiveTo = monthEnd > today ? today : monthEnd;
+const effectiveWorkingDays = Array.from(
+  { length: Math.ceil((effectiveTo - countFrom) / 86400000) + 1 },
+  (_, i) => new Date(countFrom.getTime() + i * 86400000)
+).filter(d => d.getDay() !== 0 && d.getDay() !== 6).length;
+const absent = Math.max(0, effectiveWorkingDays - present - onLeave);
   const totalHours = recs.reduce((s,r)=>s+(r.work_minutes||0),0)/60;
   const defaultSalary = emp.role==="admin"?200000:emp.role==="manager"?120000:emp.role==="hr"?90000:75000;
   const baseSalary = customSalary && customSalary > 0 ? customSalary : defaultSalary;
@@ -940,7 +950,7 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps }) {
     const deductions = absentDeduction + lateDeduction + pf + tax;
     const net    = Math.max(0, gross - deductions);
 
-    return { baseSalary, hra, hraPct, ta, taAmount, pfPct, taxPct, gross, pf, tax, absentDeduction, lateDeduction, deductions, net, present, onLeave, late, absent, workingDays, totalHours:Math.round(totalHours), perDay, monthStr };
+    return { baseSalary, hra, hraPct, ta, taAmount, pfPct, taxPct, gross, pf, tax, absentDeduction, lateDeduction, deductions, net, present, onLeave, late, absent, workingDays: effectiveWorkingDays, totalHours:Math.round(totalHours), perDay, monthStr };
   };
 
   const emps = allEmps.filter(e=>e.isActive&&(search===""||e.name.toLowerCase().includes(search.toLowerCase())||e.dept.toLowerCase().includes(search.toLowerCase())));
