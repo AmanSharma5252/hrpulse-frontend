@@ -591,7 +591,10 @@ function computePayroll(emp, attRecords, month, year, customSalary) {
   const days = new Date(year,month,0).getDate();
   const workingDays = Array.from({length:days},(_,i)=>new Date(year,month-1,i+1)).filter(d=>d.getDay()!==0&&d.getDay()!==6).length;
   const monthStr = `${year}-${String(month).padStart(2,"0")}`;
-  const recs = attRecords.filter(r=>r.date.startsWith(monthStr)&&r.employee_id===emp.id);
+  const recs = attRecords.filter(r=>{
+  const d = typeof r.date === "string" ? r.date : new Date(r.date).toISOString().split("T")[0];
+  return d.startsWith(monthStr) && r.employee_id === emp.id;
+});
   const present    = recs.filter(r=>["present","late"].includes(r.status)).length;
   const onLeave    = recs.filter(r=>r.status==="on-leave").length;
   const late       = recs.filter(r=>r.status==="late").length;
