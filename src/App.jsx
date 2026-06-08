@@ -2816,13 +2816,7 @@ setAllAtt([
   ...(attData.records||[]),
   ...(monthAttData.records||[]).filter(r=>r.date!==today),
 ]);
-        setAn(anal);
-        if(isSuperAdmin&&coData.companies?.length) setCompanies(coData.companies);
-        const today = new Date().toISOString().split("T")[0];
-setAllAtt(prev => {
-  const filtered = prev.filter(r => r.date !== today);
-  return [...filtered, ...(attData.records || [])];
-});
+       
       }
     } catch {}
   }
