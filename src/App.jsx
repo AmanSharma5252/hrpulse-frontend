@@ -901,6 +901,7 @@ function AIAlertsPage({ allEmps, allAtt, analytics }) {
 // ─── PAYROLL PAGE ─────────────────────────────────────────────────────────────
 function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps }) {
   const now = new Date();
+  const [showAccNum, setShowAccNum] = useState(false);  // ← ADD THIS
   const [month,setMonth] = useState(now.getMonth()+1);
   const [year,setYear]   = useState(now.getFullYear());
   const [sel,setSel]     = useState(null);
@@ -1044,7 +1045,7 @@ URL.revokeObjectURL(url);
           </div>
          <div style={{ maxHeight:520, overflowY:"auto" }}>
             {payrolls.map(({ emp, net, gross, deductions, present, absent, late })=>(
-              <div key={emp.id} className="row" style={{ padding:"12px 20px", cursor:"pointer", background:sel===emp.id?"var(--gd)":"", borderLeft:sel===emp.id?"3px solid var(--g)":"3px solid transparent" }} onClick={()=>{setSel(sel===emp.id?null:emp.id);setEditingSalary(false);}}>
+              <div key={emp.id} className="row" style={{ padding:"12px 20px", cursor:"pointer", background:sel===emp.id?"var(--gd)":"", borderLeft:sel===emp.id?"3px solid var(--g)":"3px solid transparent" }} onClick={()=>{setSel(sel===emp.id?null:emp.id);setEditingSalary(false);setShowAccNum(false);}}>
                 <Av emp={emp} size={36}/>
                 <div style={{ flex:1,minWidth:0 }}>
                   <div style={{ fontSize:13,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{emp.name}</div>
@@ -1158,17 +1159,34 @@ URL.revokeObjectURL(url);
         
               {/* Bank details (admin view) */}
               {isAdmin && (
-                <div style={{ background:"rgba(62,207,142,0.06)",border:"1px solid rgba(62,207,142,0.15)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12 }}>
-                  <div style={{ fontSize:10,color:"var(--text3)",letterSpacing:.5,marginBottom:6 }}>🏦 BANK DETAILS</div>
-                  {profile.bank_account_number ? <>
-                    <div style={{ color:"var(--text)",fontWeight:600 }}>{profile.bank_account_holder||selData.emp.name}</div>
-                    <div style={{ color:"var(--text2)",marginTop:2 }}>{profile.bank_name||"—"} · {profile.bank_ifsc||"—"}</div>
-                    <div style={{ color:"var(--g)",fontFamily:"var(--mono)",marginTop:3,letterSpacing:2 }}>
-                      {"•".repeat(Math.max(0,(profile.bank_account_number||"").length-4))}{(profile.bank_account_number||"").slice(-4)}
-                    </div>
-                  </> : <div style={{ color:"#F59E0B" }}>⚠ Bank details not added by employee</div>}
-                </div>
-              )}
+  <div style={{ background:"rgba(62,207,142,0.06)",border:"1px solid rgba(62,207,142,0.15)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12 }}>
+    <div style={{ fontSize:10,color:"var(--text3)",letterSpacing:.5,marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+      <span>🏦 BANK DETAILS</span>
+      {profile.bank_account_number && (
+        <button
+          onClick={()=>setShowAccNum(v=>!v)}
+          style={{ background:"rgba(62,207,142,0.1)",border:"1px solid rgba(62,207,142,0.25)",color:"var(--g)",borderRadius:6,padding:"2px 8px",fontSize:10,cursor:"pointer",fontFamily:"inherit" }}>
+          {showAccNum ? "🙈 Hide" : "👁 Show"}
+        </button>
+      )}
+    </div>
+    {profile.bank_account_number ? <>
+      <div style={{ color:"var(--text)",fontWeight:600 }}>{profile.bank_account_holder||selData.emp.name}</div>
+      <div style={{ color:"var(--text2)",marginTop:2 }}>{profile.bank_name||"—"} · {profile.bank_ifsc||"—"}</div>
+      <div style={{ color:"var(--g)",fontFamily:"var(--mono)",marginTop:3,letterSpacing:2 }}>
+        {showAccNum
+          ? profile.bank_account_number
+          : "•".repeat(Math.max(0,(profile.bank_account_number||"").length-4)) + (profile.bank_account_number||"").slice(-4)
+        }
+      </div>
+      {showAccNum && (
+        <div style={{ marginTop:6,padding:"4px 8px",background:"rgba(239,68,68,0.06)",border:"1px solid rgba(239,68,68,0.15)",borderRadius:6,fontSize:10,color:"#EF4444" }}>
+          ⚠ Sensitive data — do not share screen
+        </div>
+      )}
+    </> : <div style={{ color:"#F59E0B" }}>⚠ Bank details not added by employee</div>}
+  </div>
+)}
 
               <div style={{ fontSize:10,color:"var(--text3)",letterSpacing:1,marginBottom:10 }}>PAY PERIOD · {monthNames[month-1].toUpperCase()} {year}</div>
               <div style={{ display:"flex",gap:10,marginBottom:14 }}>
