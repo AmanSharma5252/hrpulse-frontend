@@ -929,7 +929,17 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps }) {
     const present = recs.filter(r=>["present","late"].includes(r.status)).length;
     const onLeave = recs.filter(r=>r.status==="on-leave").length;
     const late    = recs.filter(r=>r.status==="late").length;
-    const absent  = Math.max(0, workingDays - present - onLeave);
+    const monthStart = new Date(year, month - 1, 1);
+    const hireDate   = emp.hireDate ? new Date(emp.hireDate) : monthStart;
+    const countFrom  = hireDate > monthStart ? hireDate : monthStart;
+    const today      = new Date();
+    const monthEnd   = new Date(year, month, 0);
+    const effectiveTo = monthEnd > today ? today : monthEnd;
+    const effectiveWorkingDays = Array.from(
+      { length: Math.ceil((effectiveTo - countFrom) / 86400000) + 1 },
+      (_, i) => new Date(countFrom.getTime() + i * 86400000)
+    ).filter(d => d.getDay() !== 0 && d.getDay() !== 6).length;
+    const absent = Math.max(0, effectiveWorkingDays - present - onLeave);
     const totalHours = recs.reduce((s,r)=>s+(r.work_minutes||0),0)/60;
 
     // Use custom salary if set, otherwise 0 (admin must set)
