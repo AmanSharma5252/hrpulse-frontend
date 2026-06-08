@@ -2803,11 +2803,19 @@ export default function App() {
       if(empList.length) { setEmps(empList); setAllEmps(empList); }
 
       if (isMgr || isSuperAdmin) {
-        const [anal,coData,attData]=await Promise.all([
-          api.get("/analytics/overview").catch(()=>null),
-          isSuperAdmin?api.get("/companies").catch(()=>({companies:[]})):Promise.resolve({companies:[]}),
-          api.get(`/attendance/team?date=${new Date().toISOString().split("T")[0]}`).catch(()=>({records:[]})),
-        ]);
+        const today = new Date().toISOString().split("T")[0];
+const [anal,coData,attData,monthAttData]=await Promise.all([
+  api.get("/analytics/overview").catch(()=>null),
+  isSuperAdmin?api.get("/companies").catch(()=>({companies:[]})):Promise.resolve({companies:[]}),
+  api.get(`/attendance/team?date=${today}`).catch(()=>({records:[]})),
+  api.get(`/attendance/team?month=${new Date().getMonth()+1}&year=${new Date().getFullYear()}`).catch(()=>({records:[]})),
+]);
+setAn(anal);
+if(isSuperAdmin&&coData.companies?.length) setCompanies(coData.companies);
+setAllAtt([
+  ...(attData.records||[]),
+  ...(monthAttData.records||[]).filter(r=>r.date!==today),
+]);
         setAn(anal);
         if(isSuperAdmin&&coData.companies?.length) setCompanies(coData.companies);
         const today = new Date().toISOString().split("T")[0];
