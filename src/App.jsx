@@ -2803,7 +2803,7 @@ export default function App() {
       if(empList.length) { setEmps(empList); setAllEmps(empList); }
 
       if (isMgr || isSuperAdmin) {
-        const today = new Date().toISOString().split("T")[0];
+        
 const [anal,coData,attData,monthAttData]=await Promise.all([
   api.get("/analytics/overview").catch(()=>null),
   isSuperAdmin?api.get("/companies").catch(()=>({companies:[]})):Promise.resolve({companies:[]}),
