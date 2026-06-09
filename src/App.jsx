@@ -2804,17 +2804,18 @@ export default function App() {
 
       if (isMgr || isSuperAdmin) {
         
+const todayDate = new Date().toISOString().split("T")[0];
 const [anal,coData,attData,monthAttData]=await Promise.all([
   api.get("/analytics/overview").catch(()=>null),
   isSuperAdmin?api.get("/companies").catch(()=>({companies:[]})):Promise.resolve({companies:[]}),
-  api.get(`/attendance/team?date=${today}`).catch(()=>({records:[]})),
+  api.get(`/attendance/team?date=${todayDate}`).catch(()=>({records:[]})),
   api.get(`/attendance/team?month=${new Date().getMonth()+1}&year=${new Date().getFullYear()}`).catch(()=>({records:[]})),
 ]);
 setAn(anal);
 if(isSuperAdmin&&coData.companies?.length) setCompanies(coData.companies);
 setAllAtt([
   ...(attData.records||[]),
-  ...(monthAttData.records||[]).filter(r=>r.date!==today),
+  ...(monthAttData.records||[]).filter(r=>r.date!==todayDate),
 ]);
        
       }
