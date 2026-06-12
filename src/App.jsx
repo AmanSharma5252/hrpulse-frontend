@@ -352,7 +352,12 @@ label  { font-size: 10px; color: var(--text3); font-weight: 700; margin-bottom: 
   font-size: 14px; flex-shrink: 0;
 }
 
+.tracker-grid { display:grid; grid-template-columns:1fr 320px; gap:14px; height:520px; }
+
 @media(max-width:768px) {
+  .tracker-grid { grid-template-columns:1fr!important; height:auto!important; }
+  .tracker-grid > div:first-child { height:320px; min-height:320px; }
+  .tracker-grid > div:last-child { max-height:340px; }
   .sidebar { position:fixed; bottom:0; left:0; right:0; height:60px; width:100%!important; flex-direction:row!important; padding:0 6px!important; border-right:none!important; border-top:1px solid var(--border); z-index:100; overflow-x:auto; overflow-y:hidden; align-items:center; }
   .nav { flex-direction:column; gap:2px; font-size:8px; padding:6px 8px; min-width:52px; border-radius:8px; }
   .nav.on::before { display:none; }
@@ -1438,7 +1443,7 @@ function LiveTrackerPage({ allEmps, allAtt, isSuperAdmin }) {
           ))}
         </div>
       </div>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 320px", gap:14, height:520 }}>
+      <div className="tracker-grid">
         <div style={{ borderRadius:16, overflow:"hidden", border:"1px solid var(--border2)", position:"relative" }}>
           <div ref={mapRef} style={{ width:"100%", height:"100%" }}/>
           {todayAtt.length===0&&(
