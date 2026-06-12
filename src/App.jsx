@@ -1218,7 +1218,30 @@ URL.revokeObjectURL(url);
           payslip_data: pdfDataUrl
         });
       }
+      <div style={{ display:"flex",gap:8 }}>
+  <button className="btn btn-g" style={{ fontSize:11 }} onClick={async()=>{
+    try {
+      const pdf = await generatePayslipPDF(selData.emp, selData, monthNames);
+      pdf.save(`${selData.emp.name}_Payslip_${monthNames[month-1]}_${year}.pdf`);
+      toast.success(`📥 Payslip downloaded!`);
+    } catch(e) { toast.error("Failed to generate PDF"); }
+  }}>📥 Download PDF</button>
+  <button className="btn btn-g" style={{ fontSize:11 }} onClick={async()=>{
+    try {
+      const pdf = await generatePayslipPDF(selData.emp, selData, monthNames);
+      const pdfDataUrl = pdf.output('dataurlstring');
+      if (!useDemo) {
+        await api.post("/notifications/send", {
+          employee_id: selData.emp.id,
+          type: "payslip_email",
+          email: selData.emp.email,
+          payslip_data: pdfDataUrl
+        });
+      }
       toast.success(`📧 Payslip sent to ${selData.emp.email}!`);
+    } catch(e) { toast.error(e.message); }
+  }}>📧 Send Email</button>
+</div>
     } catch(e) { toast.error(e.message); }
   }}>📧 Send Email</button>
 </div>
