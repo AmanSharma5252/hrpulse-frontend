@@ -1158,57 +1158,51 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps, useDemo }) {
 
   // ── Per-employee payroll calc using custom salary fields ──
   const computePayrollCustom = (emp, attRecords, month, year) => {
-    const monthStr = `${year}-${String(month).padStart(2, "0")}`;
-    const recs = attRecords.filter(r => {
-      const d = typeof r.date === "string" ? r.date : new Date(r.date).toISOString().split("T")[0];
-      return d.startsWith(monthStr) && r.employee_id === emp.id;
-    });
+  const monthStr = `${year}-${String(month).padStart(2, "0")}`;
+  const recs = attRecords.filter(r => {
+    const d = typeof r.date === "string" ? r.date : new Date(r.date).toISOString().split("T")[0];
+    return d.startsWith(monthStr) && r.employee_id === emp.id;
+  });
 
-    const present  = recs.filter(r => ["present","late"].includes(r.status)).length;
-    const onLeave  = recs.filter(r => r.status === "on-leave").length;
-    const late     = recs.filter(r => r.status === "late").length;
+  const present  = recs.filter(r => ["present","late"].includes(r.status)).length;
+  const onLeave  = recs.filter(r => r.status === "on-leave").length;
+  const late     = recs.filter(r => r.status === "late").length;
 
-    const monthStart   = new Date(year, month - 1, 1);
-    const hireDate     = emp.hireDate ? new Date(emp.hireDate) : monthStart;
-    const countFrom    = hireDate > monthStart ? hireDate : monthStart;
-    const today        = new Date();
-    const monthEnd     = new Date(year, month, 0);
-    const effectiveTo  = monthEnd > today ? today : monthEnd;
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const workingDays = Math.round(daysInMonth * 5 / 7);
+  const absent = Math.max(0, workingDays - present - onLeave);
+  const totalHours = recs.reduce((s, r) => s + (r.work_minutes || 0), 0) / 60;
 
-    const effectiveWorkingDays = Array.from(
-      { length: Math.ceil((effectiveTo - countFrom) / 86400000) + 1 },
-      (_, i) => new Date(countFrom.getTime() + i * 86400000)
-    ).filter(d => d.getDay() !== 0 && d.getDay() !== 6).length;
+  const baseSalary = emp.base_salary || 0;
+  const hraPct = emp.hra_pct ?? 0;
+  const taAmount = emp.ta_amount || 0;
+  const pfPct = emp.pf_pct ?? 0;
+  const taxPct = emp.tax_pct ?? 0;
 
-    const absent     = Math.max(0, effectiveWorkingDays - present - onLeave);
-    const totalHours = recs.reduce((s, r) => s + (r.work_minutes || 0), 0) / 60;
+  // ✅ PRO-RATA LOGIC
+  const workingDaysActual = Math.max(1, workingDays);
+  const perDay = baseSalary > 0 ? baseSalary / workingDaysActual : 0;
+  const earnedDays = present + onLeave;
+  const basic = perDay * earnedDays; // Pro-rated!
 
-    const baseSalary = emp.base_salary || 0;
-    const hraPct     = emp.hra_pct     ?? 0;
-    const taAmount   = emp.ta_amount   || 0;
-    const pfPct      = emp.pf_pct      ?? 0;
-    const taxPct     = emp.tax_pct     ?? 0;
+  const hra = Math.round(basic * hraPct / 100);
+  const ta = taAmount;
+  const gross = basic + hra + ta;
+  
+  const pf = Math.round(basic * pfPct / 100);
+  const tax = Math.round(gross * taxPct / 100);
+  const deductions = pf + tax;
+  const net = Math.max(0, gross - deductions);
 
-    const perDay          = baseSalary > 0 ? Math.round(baseSalary / 22) : 0;
-    const absentDeduction = absent * perDay;
-    const lateDeduction   = late * Math.round(perDay / 2);
-    const hra             = Math.round(baseSalary * hraPct  / 100);
-    const pf              = Math.round(baseSalary * pfPct   / 100);
-    const tax             = Math.round(baseSalary * taxPct  / 100);
-    const ta              = taAmount;
-    const gross           = baseSalary + hra + ta;
-    const deductions      = absentDeduction + lateDeduction + pf + tax;
-    const net             = Math.max(0, gross - deductions);
-
-    return {
-      baseSalary, hra, hraPct, ta, taAmount, pfPct, taxPct,
-      gross, pf, tax, absentDeduction, lateDeduction, deductions, net,
-      present, onLeave, late, absent,
-      workingDays: effectiveWorkingDays,
-      totalHours: Math.round(totalHours),
-      perDay, monthStr,
-    };
+  return {
+    baseSalary: basic, hra, hraPct, ta, taAmount, pfPct, taxPct,
+    gross, pf, tax, deductions, net,
+    present, onLeave, late, absent,
+    workingDays: workingDaysActual,
+    totalHours: Math.round(totalHours),
+    perDay, monthStr,
   };
+};
 
   const emps     = allEmps.filter(e => e.isActive && (
     search === "" ||
