@@ -1152,6 +1152,7 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps, useDemo }) {
   const [empProfiles,  setEmpProfiles]  = useState({});
   const [pdfLoading,   setPdfLoading]   = useState(false);
   const [mailLoading,  setMailLoading]  = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
 
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
@@ -1319,6 +1320,28 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps, useDemo }) {
     }
     setMailLoading(false);
   };
+  // ── Recalculate Payroll ──
+const handleRecalculate = async () => {
+  const confirmed = window.confirm(
+    `Recalculate payroll for ${monthNames[month - 1]} ${year}?\n\nThis will delete old records and recompute with current attendance data.`
+  );
+  if (!confirmed) return;
+
+  setRecalculating(true);
+  try {
+    toast.loading("Recalculating payroll…", { id: "recalc" });
+    await api.post("/payroll/recalculate", { month, year });
+    toast.dismiss("recalc");
+    toast.success("✅ Payroll recalculated with pro-rata calculations!");
+    // Refresh to show new data
+    window.location.reload();
+  } catch (e) {
+    toast.dismiss("recalc");
+    toast.error("Recalculate failed: " + e.message);
+  }
+  setRecalculating(false);
+};
+
 
   return (
     <div className="fu">
@@ -1346,7 +1369,19 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps, useDemo }) {
         </select>
 
         {/* Export CSV */}
-        <button className="btn btn-p" style={{ marginLeft:"auto" }} onClick={() => {
+        {/* Recalculate Payroll */}
+<button 
+  className="btn btn-p" 
+  style={{ marginLeft:"auto" }} 
+  onClick={handleRecalculate}
+  disabled={recalculating}
+  title="Delete old payroll and recalculate with current attendance"
+>
+  {recalculating ? <Spin/> : "🔄 Recalculate Payroll"}
+</button>
+
+{/* Export CSV */}
+<button className="btn btn-p" onClick={() => {
           const rows = [["Employee","Department","Role","Base Salary","HRA","TA","Gross","PF","Tax","Absent Ded","Late Ded","Net Pay","Present","Absent","Late"]];
           payrolls.forEach(({ emp, baseSalary, hra, ta, gross, pf, tax, absentDeduction, lateDeduction, net, present, absent, late }) => {
             rows.push([emp.name, emp.dept, emp.role, baseSalary, hra, ta, gross, pf, tax, absentDeduction, lateDeduction, net, present, absent, late]);
@@ -3266,7 +3301,6 @@ setAllAtt([
     setBusy(false);
   };
 
-  // ✅ checkOut supports early checkout with reason
   // ✅ checkOut supports early checkout with reason
   const checkOut = async (selfie=null, earlyReason=null) => {
   setBusy(true);
