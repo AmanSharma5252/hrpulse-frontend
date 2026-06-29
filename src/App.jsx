@@ -3282,7 +3282,7 @@ setAllAtt([
         toast.loading("Getting GPS...",{id:"loc"});
         const loc=await getLocation(); toast.dismiss("loc");
         const d=await api.post("/attendance/checkin",{latitude:loc.lat,longitude:loc.lng,selfie_base64:selfie});
-        toast.success(d.message||"Clocked in! ✓"); await loadAll();
+        toast.success(d.message||"Clocked in! ✓"); loadAll();
       } else {
         await new Promise(r=>setTimeout(r,800));
         const now=new Date();
