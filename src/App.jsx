@@ -2572,7 +2572,8 @@ function ProfilePage({ user, mySum, bals, changePw, busy }) {
     address: "", pan_number: "", aadhaar_number: "",
   });
 
-  useEffect(() => {
+useEffect(() => {
+  if (!user?.id) return; // ← ADD THIS LINE
   // Load saved profile data from the dedicated profile endpoint
   api.get(`/employees/${user.id}/profile`).then(d => {
     const p = d.profile || {};
