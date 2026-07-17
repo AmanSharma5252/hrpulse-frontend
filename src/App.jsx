@@ -940,6 +940,9 @@ async function generatePayslipPDF(emp, data, monthNames, month, year) {
   const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const W = 210, pad = 20;
 
+  // Helper function for currency formatting
+  const formatCurrency = (amount) => `Rs. ${Number(amount).toLocaleString("en-IN")}`;
+
   // ── Dark header bar ──
   doc.setFillColor(10, 16, 32);
   doc.rect(0, 0, W, 42, "F");
@@ -998,9 +1001,9 @@ async function generatePayslipPDF(emp, data, monthNames, month, year) {
 
   const attItems = [
     ["Working Days", data.workingDays],
-    ["Present",      data.present],
-    ["Late",         data.late],
-    ["Absent",       data.absent],
+    ["Present", data.present],
+    ["Late", data.late],
+    ["Absent", data.absent],
   ];
   const boxW = (W - pad * 2) / 4 - 2;
   attItems.forEach(([label, val], i) => {
@@ -1038,29 +1041,29 @@ async function generatePayslipPDF(emp, data, monthNames, month, year) {
 
       doc.setTextColor(...valColor);
       doc.setFont("helvetica", "bold");
-      doc.text(`₹${Number(val).toLocaleString("en-IN")}`, W - pad - 5, y + 6, { align: "right" });
+      doc.text(formatCurrency(val), W - pad - 5, y + 6, { align: "right" });
       y += 9;
     });
     y += 5;
   };
 
   drawSection("EARNINGS", [
-    ["Basic Salary",      data.baseSalary],
+    ["Basic Salary", data.baseSalary],
     ["House Rent Allowance (HRA)", data.hra],
-    ["Travel Allowance",  data.ta],
+    ["Travel Allowance", data.ta],
   ], [62, 207, 142]);
 
   const deductionRows = [
     ["Provident Fund (PF)", data.pf],
-    ["Tax Deduction",       data.tax],
+    ["Tax Deduction", data.tax],
   ];
   if (data.absentDeduction > 0) deductionRows.push(["Absent Deduction", data.absentDeduction]);
-  if (data.lateDeduction   > 0) deductionRows.push(["Late Deduction",   data.lateDeduction]);
+  if (data.lateDeduction > 0) deductionRows.push(["Late Deduction", data.lateDeduction]);
   drawSection("DEDUCTIONS", deductionRows, [239, 68, 68]);
 
   // ── Gross / Deductions / Net summary ──
   const summaryRows = [
-    ["Gross Earnings",   data.gross,      [62, 207, 142]],
+    ["Gross Earnings", data.gross, [62, 207, 142]],
     ["Total Deductions", data.deductions, [239, 68, 68]],
   ];
   summaryRows.forEach(([label, val, col]) => {
@@ -1072,7 +1075,7 @@ async function generatePayslipPDF(emp, data, monthNames, month, year) {
     doc.text(label, pad + 5, y + 6);
     doc.setTextColor(...col);
     doc.setFont("helvetica", "bold");
-    doc.text(`₹${Number(val).toLocaleString("en-IN")}`, W - pad - 5, y + 6, { align: "right" });
+    doc.text(formatCurrency(val), W - pad - 5, y + 6, { align: "right" });
     y += 9;
   });
   y += 4;
@@ -1091,7 +1094,7 @@ async function generatePayslipPDF(emp, data, monthNames, month, year) {
 
   doc.setTextColor(62, 207, 142);
   doc.setFontSize(18);
-  doc.text(`₹${Number(data.net).toLocaleString("en-IN")}`, W - pad - 8, y + 13, { align: "right" });
+  doc.text(formatCurrency(data.net), W - pad - 8, y + 13, { align: "right" });
   y += 28;
 
   // ── Salary structure breakdown ──
@@ -1103,8 +1106,8 @@ async function generatePayslipPDF(emp, data, monthNames, month, year) {
 
   const structRows = [
     [`HRA Rate: ${data.hraPct || 0}%`, `PF Rate: ${data.pfPct || 0}%`],
-    [`TA Fixed: ₹${Number(data.taAmount || 0).toLocaleString("en-IN")}`, `Tax Rate: ${data.taxPct || 0}%`],
-    [`Per Day Rate: ₹${Number(data.perDay || 0).toLocaleString("en-IN")}`, `Total Hours Worked: ${data.totalHours || 0}h`],
+    [`TA Fixed: ${formatCurrency(data.taAmount || 0)}`, `Tax Rate: ${data.taxPct || 0}%`],
+    [`Per Day Rate: ${formatCurrency(data.perDay || 0)}`, `Total Hours Worked: ${data.totalHours || 0}h`],
   ];
   structRows.forEach(([left, right]) => {
     doc.setFillColor(11, 17, 30);
@@ -1112,8 +1115,8 @@ async function generatePayslipPDF(emp, data, monthNames, month, year) {
     doc.setTextColor(130, 155, 190);
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
-    doc.text(left,  pad + 5,       y + 5.5);
-    doc.text(right, W - pad - 5,   y + 5.5, { align: "right" });
+    doc.text(left, pad + 5, y + 5.5);
+    doc.text(right, W - pad - 5, y + 5.5, { align: "right" });
     y += 8;
   });
   y += 6;
