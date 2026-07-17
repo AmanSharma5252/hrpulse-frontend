@@ -1,3 +1,4 @@
+import NotificationBell from "./components/NotificationBell";
 import { useState, useEffect, useRef, useCallback } from "react";
 import toast, { Toaster } from "react-hot-toast";
 import {
@@ -3575,6 +3576,7 @@ const handleCheckOut = ()=>{
               {clock.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} · <span className="mono">{clock.toLocaleTimeString("en-IN")}</span>
             </div>
           </div>
+          {isAdmin && <NotificationBell user={user} />}
           <div style={{ display:"flex",gap:8,alignItems:"center",flexWrap:"wrap" }}>
             <button className="btn btn-g" style={{ fontSize:11 }} onClick={loadAll} disabled={busy}>↻</button>
             {isMgr&&nav==="Employees"&&<button className="btn btn-p" onClick={()=>setModal({type:"addEmp"})}>+ Add Employee</button>}
