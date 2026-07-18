@@ -949,440 +949,407 @@ function loadJsPDF() {
   });
 }
 
+// ─── PDF GENERATOR WITH LOGO SUPPORT ──────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🏆 ULTIMATE ENTERPRISE PAYSLIP GENERATOR v3
-// Best-of-the-best design with all premium features
+// 💼 PREMIUM PROFESSIONAL PAYSLIP GENERATOR v2
+// Enterprise-grade design with sophisticated layout
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Language support
-const LANGUAGES = {
-  en: {
-    payslip: "PAYSLIP",
-    employeeInfo: "EMPLOYEE INFORMATION",
-    attendance: "ATTENDANCE",
-    earnings: "EARNINGS",
-    deductions: "DEDUCTIONS",
-    grossEarnings: "GROSS EARNINGS",
-    totalDeductions: "TOTAL DEDUCTIONS",
-    netPay: "NET PAY",
-    takeHome: "Take Home Salary",
-    bankDetails: "BANK DETAILS",
-    signature: "AUTHORIZED SIGNATURE",
-    verificationCode: "Verification Code",
-    generated: "Generated",
-    approved: "Approved",
-  },
-  hi: {
-    payslip: "वेतन पर्ची",
-    employeeInfo: "कर्मचारी जानकारी",
-    attendance: "उपस्थिति",
-    earnings: "कमाई",
-    deductions: "कटौती",
-    grossEarnings: "सकल कमाई",
-    totalDeductions: "कुल कटौती",
-    netPay: "शुद्ध वेतन",
-    takeHome: "हाथ में आने वाली राशि",
-    bankDetails: "बैंक विवरण",
-    signature: "अधिकृत हस्ताक्षर",
-    verificationCode: "सत्यापन कोड",
-    generated: "जेनरेट किया गया",
-    approved: "अनुमोदित",
-  }
-};
-
-async function generatePayslipPDF(emp, data, monthNames, month, year, companyLogo = null, language = 'en') {
+async function generatePayslipPDF(emp, data, monthNames, month, year, companyLogo = null) {
   const JsPDF = await loadJsPDF();
   const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   
   const W = 210;
   const H = 297;
-  const mX = 12;  // Left/right margin
-  const mY = 12;  // Top/bottom margin
-  const cW = W - mX * 2;  // Content width
-  
-  const lang = LANGUAGES[language] || LANGUAGES.en;
+  const marginX = 15;
+  const marginY = 15;
+  const contentW = W - marginX * 2;
   
   // ─────────────────────────────────────────────────────────────────────────────
-  // COLORS
+  // COLORS - Professional Palette
   // ─────────────────────────────────────────────────────────────────────────────
   const colors = {
-    primary: [25, 103, 210],      // Deep blue
-    secondary: [52, 168, 83],     // Green
-    accent: [242, 113, 28],       // Orange
-    dark: [31, 41, 55],           // Dark gray
-    light: [243, 244, 246],       // Light gray
-    danger: [220, 38, 38],        // Red
-    text: [55, 65, 81],           // Text color
-    border: [229, 231, 235],      // Border
+    primary: [24, 144, 255],      // Professional blue
+    secondary: [82, 196, 26],     // Professional green
+    dark: [33, 37, 41],           // Dark charcoal
+    light: [247, 248, 250],       // Light gray
+    text: [55, 65, 81],           // Dark text
+    lightText: [107, 114, 128],   // Muted text
+    border: [209, 213, 219],      // Border gray
+    success: [34, 197, 94],       // Green
+    danger: [239, 68, 68],        // Red
+    warning: [245, 158, 11],      // Orange
   };
   
   const fmt = (val) => `Rs. ${Number(val || 0).toLocaleString("en-IN")}`;
-  let y = mY;
+  let y = marginY;
 
-  // ═════════════════════════════════════════════════════════════════════════════
-  // HEADER PREMIUM DESIGN
-  // ═════════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────────
+  // HEADER - Premium Design
+  // ─────────────────────────────────────────────────────────────────────────────
   
   // Top accent bar
   doc.setFillColor(...colors.primary);
-  doc.rect(0, 0, W, 3, "F");
+  doc.rect(0, 0, W, 5, "F");
   
   // Header background
-  doc.setFillColor(255, 255, 255);
-  doc.rect(0, 3, W, 38, "F");
+  doc.setFillColor(...colors.light);
+  doc.rect(0, 5, W, 40, "F");
+  
+  // Company logo
+  if (companyLogo) {
+    try {
+      doc.addImage(companyLogo, "PNG", marginX, 8, 12, 12);
+    } catch (err) {}
+  }
+  
+  // Company name
+  doc.setTextColor(...colors.dark);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text("HRPulse", marginX + (companyLogo ? 16 : 0), 14);
+  
+  // Company tagline
+  doc.setTextColor(...colors.lightText);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text("Workforce Intelligence Platform", marginX + (companyLogo ? 16 : 0), 19);
+  
+  // Payslip title (right side)
+  doc.setTextColor(...colors.primary);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text("PAYSLIP", W - marginX, 14, { align: "right" });
+  
+  // Month and year
+  doc.setTextColor(...colors.text);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(`${monthNames[month - 1]} ${year}`, W - marginX, 19, { align: "right" });
+  
+  // Document ID
+  doc.setTextColor(...colors.lightText);
+  doc.setFontSize(7);
+  doc.text(`ID: ${emp.code || "EMP-001"} | Generated: ${new Date().toLocaleDateString("en-IN")}`, W - marginX, 24, { align: "right" });
+  
+  y = 48;
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // EMPLOYEE INFORMATION - Card Style
+  // ─────────────────────────────────────────────────────────────────────────────
   
   // Border
   doc.setDrawColor(...colors.border);
   doc.setLineWidth(0.5);
-  doc.line(mX, 3, W - mX, 3);
-  doc.line(mX, 41, W - mX, 41);
+  doc.rect(marginX, y - 2, contentW, 32, "S");
   
-  // Company Logo
-  if (companyLogo) {
-    try {
-      doc.addImage(companyLogo, "PNG", mX, 6, 10, 10);
-    } catch (err) {}
-  }
-  
-  // Company Name & Tagline
-  doc.setTextColor(...colors.primary);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.text("HRPulse", mX + (companyLogo ? 12 : 0), 12);
-  
-  doc.setTextColor(...colors.text);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
-  doc.text("Enterprise HR Management", mX + (companyLogo ? 12 : 0), 17);
-  
-  // Payslip Title (Right)
-  doc.setTextColor(...colors.primary);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.text(lang.payslip, W - mX, 10, { align: "right" });
-  
-  doc.setTextColor(...colors.text);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text(`${monthNames[month - 1]} ${year}`, W - mX, 16, { align: "right" });
-  doc.text(`ID: ${emp.code || "EMP-001"}`, W - mX, 20, { align: "right" });
-  
-  y = 44;
-
-  // ═════════════════════════════════════════════════════════════════════════════
-  // EMPLOYEE INFORMATION - Clean Card
-  // ═════════════════════════════════════════════════════════════════════════════
-  
+  // Background
   doc.setFillColor(...colors.light);
-  doc.roundedRect(mX, y, cW, 28, 2, 2, "F");
+  doc.rect(marginX, y - 2, contentW, 32, "F");
   
-  doc.setDrawColor(...colors.border);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(mX, y, cW, 28, 2, 2, "S");
-  
-  doc.setTextColor(...colors.primary);
+  // Employee name
+  doc.setTextColor(...colors.dark);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text(emp.name, mX + 3, y + 5);
+  doc.setFontSize(13);
+  doc.text(emp.name, marginX + 4, y + 4);
   
-  doc.setTextColor(...colors.text);
+  // Role and department
+  doc.setTextColor(...colors.lightText);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
-  doc.text(`${emp.title || "Employee"} • ${emp.dept || "General"}`, mX + 3, y + 10);
+  doc.text(`${emp.title || "Employee"} • ${emp.dept || "General"}`, marginX + 4, y + 10);
   
-  const col1 = mX + 3;
-  const col2 = W / 2 - 5;
-  
-  doc.setFontSize(7);
-  doc.text(`ID: ${emp.code || "—"}`, col1, y + 16);
-  doc.text(`Designation: ${emp.title || "—"}`, col1, y + 21);
-  doc.text(`Dept: ${emp.dept || "—"}`, col1, y + 26);
-  
-  doc.text(`Email: ${emp.email || "—"}`, col2, y + 16);
-  const bankField = emp.bankName || emp.bank_name || emp.bankAccount || emp.bank_account || "—";
-  doc.text(`Bank: ${bankField}`, col2, y + 21);
-  doc.text(`Date: ${new Date().toLocaleDateString("en-IN")}`, col2, y + 26);
-  
-  y += 32;
+  // Employee details (left column)
+  doc.setFontSize(7.5);
+doc.setTextColor(...colors.text);
 
-  // ═════════════════════════════════════════════════════════════════════════════
-  // ATTENDANCE - Horizontal Layout
-  // ═════════════════════════════════════════════════════════════════════════════
+const leftCol = marginX + 4;
+const rightCol = marginX + contentW / 2;
+
+// Left column
+doc.text(`Employee ID: ${emp.code || "—"}`, leftCol, y + 16);
+doc.text(`Designation: ${emp.title || "—"}`, leftCol, y + 21);
+doc.text(`Department: ${emp.dept || "—"}`, leftCol, y + 26);
+
+// Right column
+doc.text(`Email: ${emp.email || "—"}`, rightCol, y + 16);
+
+const bankField = emp.bankName || emp.bank_name || emp.bankAccount || emp.bank_account || emp.accountNumber || "—";
+doc.text(`Bank: ${bankField}`, rightCol, y + 21);
+
+doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}`, rightCol, y + 26);
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ATTENDANCE & KEY METRICS
+  // ─────────────────────────────────────────────────────────────────────────────
   
   doc.setTextColor(...colors.text);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
-  doc.text(lang.attendance, mX, y);
-  y += 5;
-  
-  const attBoxW = (cW - 6) / 4;
-  const attMetrics = [
-    { label: "Working Days", value: data.workingDays, color: colors.primary },
-    { label: "Present", value: data.present, color: colors.secondary },
-    { label: "Absent", value: data.absent, color: colors.danger },
-    { label: "Late", value: data.late, color: colors.accent },
-  ];
-  
-  let attX = mX;
-  attMetrics.forEach(m => {
-    doc.setDrawColor(...m.color);
-    doc.setLineWidth(1);
-    doc.rect(attX, y, attBoxW, 16, "S");
-    
-    doc.setTextColor(...m.color);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.text(String(m.value), attX + attBoxW / 2, y + 8, { align: "center" });
-    
-    doc.setTextColor(...colors.text);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(6.5);
-    doc.text(m.label, attX + attBoxW / 2, y + 14, { align: "center" });
-    
-    attX += attBoxW + 1.5;
-  });
-  
-  y += 20;
-
-  // ═════════════════════════════════════════════════════════════════════════════
-  // SALARY BREAKDOWN - Two Column Layout
-  // ═════════════════════════════════════════════════════════════════════════════
-  
-  // LEFT COLUMN: EARNINGS
-  doc.setFillColor(...colors.secondary);
-  doc.rect(mX, y, cW / 2 - 1, 5, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.text(lang.earnings, mX + 2, y + 3.5);
-  
+  doc.text("ATTENDANCE & KEY METRICS", marginX, y);
   y += 6;
   
-  const earningItems = [
+  // Metrics boxes
+  const metrics = [
+    { label: "Working Days", value: data.workingDays, icon: "📅" },
+    { label: "Present", value: data.present, icon: "✓", color: colors.success },
+    { label: "Absent", value: data.absent, icon: "✗", color: colors.danger },
+    { label: "Late", value: data.late, icon: "🕐", color: colors.warning },
+  ];
+  
+  const boxW = (contentW - 9) / 4;
+  let boxX = marginX;
+  
+  metrics.forEach((metric) => {
+    // Box border
+    doc.setDrawColor(...metric.color || colors.border);
+    doc.setLineWidth(0.5);
+    doc.rect(boxX, y, boxW, 20, "S");
+    
+    // Background
+    doc.setFillColor(255, 255, 255);
+    doc.rect(boxX, y, boxW, 20, "F");
+    
+    // Value
+    doc.setTextColor(...metric.color || colors.primary);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text(String(metric.value || 0), boxX + boxW / 2, y + 8, { align: "center" });
+    
+    // Label
+    doc.setTextColor(...colors.text);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.text(metric.label, boxX + boxW / 2, y + 17, { align: "center" });
+    
+    boxX += boxW + 2.25;
+  });
+  
+  y += 25;
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // EARNINGS & DEDUCTIONS - Professional Table
+  // ─────────────────────────────────────────────────────────────────────────────
+  
+  const drawTable = (title, rows, titleColor) => {
+    
+    // Title
+    doc.setFillColor(...titleColor);
+    doc.rect(marginX, y, contentW, 6, "F");
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text(title, marginX + 3, y + 4);
+    
+    y += 7;
+    
+    // Header row
+    doc.setFillColor(...colors.light);
+    doc.rect(marginX, y, contentW, 5, "F");
+    doc.setDrawColor(...colors.border);
+    doc.setLineWidth(0.3);
+    doc.line(marginX, y + 5, marginX + contentW, y + 5);
+    
+    doc.setTextColor(...colors.text);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.text("Description", marginX + 3, y + 3.5);
+    doc.text("Amount", marginX + contentW - 3, y + 3.5, { align: "right" });
+    
+    y += 6;
+    
+    // Data rows
+    rows.forEach((row, idx) => {
+      const isEven = idx % 2 === 0;
+      
+      // Alternating background
+      if (isEven) {
+        doc.setFillColor(249, 250, 251);
+        doc.rect(marginX, y, contentW, 5, "F");
+      }
+      
+      // Border
+      doc.setDrawColor(...colors.border);
+      doc.setLineWidth(0.2);
+      doc.line(marginX, y + 5, marginX + contentW, y + 5);
+      
+      // Content
+      doc.setTextColor(...colors.text);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.text(row[0], marginX + 3, y + 3.5);
+      
+      doc.setTextColor(...titleColor);
+      doc.setFont("helvetica", "bold");
+      doc.text(fmt(row[1]), marginX + contentW - 3, y + 3.5, { align: "right" });
+      
+      y += 6;
+    });
+    
+    y += 2;
+  };
+  
+  drawTable("EARNINGS", [
     ["Basic Salary", data.baseSalary],
-    ["HRA", data.hra],
-    ["TA", data.ta],
-  ];
+    ["House Rent Allowance (HRA)", data.hra],
+    ["Travel Allowance (TA)", data.ta],
+  ], colors.success);
   
-  earningItems.forEach((item, idx) => {
-    const bgColor = idx % 2 === 0 ? colors.light : [255, 255, 255];
-    doc.setFillColor(...bgColor);
-    doc.rect(mX, y, cW / 2 - 1, 4, "F");
-    
-    doc.setTextColor(...colors.text);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    doc.text(item[0], mX + 2, y + 2.5);
-    
-    doc.setTextColor(...colors.secondary);
-    doc.setFont("helvetica", "bold");
-    doc.text(fmt(item[1]), mX + cW / 2 - 3, y + 2.5, { align: "right" });
-    
-    y += 5;
-  });
-  
-  // RIGHT COLUMN: DEDUCTIONS
-  doc.setFillColor(...colors.danger);
-  doc.rect(W / 2 + 1, y - 26, cW / 2 - 1, 5, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.text(lang.deductions, W / 2 + 3, y - 22.5);
-  
-  const dedItems = [
-    ["PF", data.pf],
-    ["Tax", data.tax],
-  ];
-  
-  let dedY = y - 20;
-  dedItems.forEach((item, idx) => {
-    const bgColor = idx % 2 === 0 ? colors.light : [255, 255, 255];
-    doc.setFillColor(...bgColor);
-    doc.rect(W / 2 + 1, dedY, cW / 2 - 1, 4, "F");
-    
-    doc.setTextColor(...colors.text);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    doc.text(item[0], W / 2 + 3, dedY + 2.5);
-    
-    doc.setTextColor(...colors.danger);
-    doc.setFont("helvetica", "bold");
-    doc.text(fmt(item[1]), W - mX - 2, dedY + 2.5, { align: "right" });
-    
-    dedY += 5;
-  });
-  
-  y += 15;
+  drawTable("DEDUCTIONS", [
+    ["Provident Fund (PF)", data.pf],
+    ["Income Tax", data.tax],
+    ...(data.absentDeduction > 0 ? [["Absent Deduction", data.absentDeduction]] : []),
+    ...(data.lateDeduction > 0 ? [["Late Deduction", data.lateDeduction]] : []),
+  ], colors.danger);
 
-  // ═════════════════════════════════════════════════════════════════════════════
-  // SUMMARY SECTION
-  // ═════════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────────
+  // SUMMARY - Gross, Deductions, Net
+  // ─────────────────────────────────────────────────────────────────────────────
   
-  // Gross
+  y += 3;
+  
+  // Gross Earnings
   doc.setFillColor(245, 250, 255);
-  doc.rect(mX, y, cW, 5, "F");
+  doc.rect(marginX, y, contentW, 6, "F");
   doc.setDrawColor(...colors.border);
-  doc.setLineWidth(0.2);
-  doc.line(mX, y + 5, W - mX, y + 5);
+  doc.setLineWidth(0.3);
+  doc.line(marginX, y + 6, marginX + contentW, y + 6);
   
   doc.setTextColor(...colors.text);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
-  doc.text(lang.grossEarnings, mX + 2, y + 3.5);
+  doc.text("GROSS EARNINGS", marginX + 3, y + 4);
+  
   doc.setTextColor(...colors.primary);
-  doc.text(fmt(data.gross), W - mX - 2, y + 3.5, { align: "right" });
+  doc.text(fmt(data.gross), marginX + contentW - 3, y + 4, { align: "right" });
   
-  y += 6;
+  y += 8;
   
-  // Deductions
+  // Total Deductions
   doc.setFillColor(255, 245, 245);
-  doc.rect(mX, y, cW, 5, "F");
-  doc.line(mX, y + 5, W - mX, y + 5);
+  doc.rect(marginX, y, contentW, 6, "F");
+  doc.setDrawColor(...colors.border);
+  doc.setLineWidth(0.3);
+  doc.line(marginX, y + 6, marginX + contentW, y + 6);
   
   doc.setTextColor(...colors.text);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
-  doc.text(lang.totalDeductions, mX + 2, y + 3.5);
+  doc.text("TOTAL DEDUCTIONS", marginX + 3, y + 4);
+  
   doc.setTextColor(...colors.danger);
-  doc.text(fmt(data.deductions), W - mX - 2, y + 3.5, { align: "right" });
+  doc.text(fmt(data.deductions), marginX + contentW - 3, y + 4, { align: "right" });
   
-  y += 7;
+  y += 10;
 
-  // ═════════════════════════════════════════════════════════════════════════════
-  // NET PAY - PREMIUM HIGHLIGHT
-  // ═════════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────────
+  // NET PAY - Premium Highlight
+  // ─────────────────────────────────────────────────────────────────────────────
   
+  // Box
   doc.setFillColor(...colors.primary);
-  doc.roundedRect(mX, y, cW, 16, 2, 2, "F");
+  doc.roundedRect(marginX, y, contentW, 18, 2, 2, "F");
   
+  // Border
+  doc.setDrawColor(255, 255, 255);
+  doc.setLineWidth(2);
+  doc.roundedRect(marginX, y, contentW, 18, 2, 2, "S");
+  
+  // Label
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
-  doc.text(lang.netPay, mX + 3, y + 4);
+  doc.text("NET PAY (Take Home Salary)", marginX + 4, y + 6);
   
-  doc.setFontSize(16);
-  doc.text(fmt(data.net), W - mX - 3, y + 10, { align: "right" });
+  // Amount
+  doc.setFontSize(18);
+  doc.text(fmt(data.net), marginX + contentW - 4, y + 11, { align: "right" });
   
-  doc.setFontSize(7);
-  doc.text(lang.takeHome, mX + 3, y + 14);
-  
-  y += 20;
+  y += 24;
 
-  // ═════════════════════════════════════════════════════════════════════════════
-  // SECURITY FEATURES
-  // ═════════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────────
+  // SALARY STRUCTURE BREAKDOWN
+  // ─────────────────────────────────────────────────────────────────────────────
   
-  // QR Code (placeholder)
-  doc.setFillColor(240, 240, 240);
-  doc.rect(mX, y, 30, 30, "F");
   doc.setTextColor(...colors.text);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(6);
-  doc.text(lang.verificationCode, mX + 15, y + 14, { align: "center" });
-  doc.text("[QR Code]", mX + 15, y + 18, { align: "center" });
-  
-  // Signature Area
-  doc.setDrawColor(...colors.border);
-  doc.setLineWidth(0.3);
-  doc.line(mX + 35, y + 26, mX + 65, y + 26);
-  doc.setTextColor(...colors.text);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(6);
-  doc.text(lang.signature, mX + 50, y + 28, { align: "center" });
-  
-  // Company Seal
-  doc.setDrawColor(...colors.primary);
-  doc.setLineWidth(0.5);
-  doc.circle(W - mX - 15, y + 15, 12, "S");
-  doc.setTextColor(...colors.primary);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(7);
-  doc.text("OFFICIAL", W - mX - 15, y + 14, { align: "center" });
-  doc.text("SEAL", W - mX - 15, y + 17, { align: "center" });
+  doc.setFontSize(8);
+  doc.text("SALARY STRUCTURE & RATES", marginX, y);
+  y += 6;
   
-  y += 35;
+  // Small breakdown table
+  const structItems = [
+    ["HRA Rate", `${data.hraPct || 40}%`, "PF Rate", `${data.pfPct || 12}%`],
+    ["Per Day Rate", fmt(data.perDay || 0), "Total Hours", `${data.totalHours || 160}h`],
+  ];
+  
+  const colW = (contentW - 2) / 4;
+  
+  structItems.forEach((row, idx) => {
+    const bgColor = idx % 2 === 0 ? colors.light : [255, 255, 255];
+    doc.setFillColor(...bgColor);
+    doc.rect(marginX, y, contentW, 5, "F");
+    
+    doc.setDrawColor(...colors.border);
+    doc.setLineWidth(0.2);
+    doc.line(marginX, y + 5, marginX + contentW, y + 5);
+    
+    doc.setTextColor(...colors.text);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    
+    doc.text(row[0], marginX + 2, y + 3.5);
+    doc.setTextColor(...colors.primary);
+    doc.setFont("helvetica", "bold");
+    doc.text(row[1], marginX + colW - 1, y + 3.5, { align: "right" });
+    
+    doc.setTextColor(...colors.text);
+    doc.setFont("helvetica", "normal");
+    doc.text(row[2], marginX + colW + 1, y + 3.5);
+    doc.setTextColor(...colors.primary);
+    doc.setFont("helvetica", "bold");
+    doc.text(row[3], marginX + contentW - 1, y + 3.5, { align: "right" });
+    
+    y += 6;
+  });
 
-  // ═════════════════════════════════════════════════════════════════════════════
-  // FOOTER - PROFESSIONAL
-  // ═════════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────────
+  // FOOTER - Professional
+  // ─────────────────────────────────────────────────────────────────────────────
   
-  const footerY = H - 20;
+  const footerY = H - 18;
   
+  // Footer background
   doc.setFillColor(...colors.dark);
   doc.rect(0, footerY - 2, W, H - footerY + 2, "F");
   
+  // Accent line
   doc.setFillColor(...colors.primary);
   doc.rect(0, footerY - 2, W, 1, "F");
   
-  // Footer company info
+  // Logo
+  if (companyLogo) {
+    try {
+      doc.addImage(companyLogo, "PNG", W / 2 - 5, footerY, 10, 10);
+    } catch (err) {}
+  }
+  
+  // Footer text
   doc.setTextColor(200, 210, 220);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(6);
-  doc.text("This is a confidential, system-generated payslip and is valid without physical signature.", W / 2, footerY + 2, { align: "center" });
-  doc.text("For discrepancies, contact HR at hr@company.com | +91-XXX-XXX-XXXX", W / 2, footerY + 5, { align: "center" });
+  doc.text("This is a confidential, system-generated payslip.", W / 2, footerY + 12, { align: "center" });
+  doc.text("For queries, contact HR at hr@company.com", W / 2, footerY + 15, { align: "center" });
   
   doc.setTextColor(150, 160, 170);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(5);
-  doc.text("HRPulse • Enterprise HR Solution • hrpulse.io", mX, footerY + 10);
-  doc.text(`Generated: ${new Date().toLocaleString("en-IN")} | Page 1 of 1`, W - mX, footerY + 10, { align: "right" });
+  doc.text("HRPulse • Powered by Anthropic • hrpulse.io", marginX, footerY + 18);
+  doc.text(`Generated: ${new Date().toLocaleString("en-IN")}`, W - marginX, footerY + 18, { align: "right" });
 
   return doc;
 }
-
-// ═════════════════════════════════════════════════════════════════════════════
-// HANDLER WITH EMAIL DELIVERY
-// ═════════════════════════════════════════════════════════════════════════════
-
-const handleDownloadPayslip = async (sendEmail = false) => {
-  if (!selData) {
-    toast.error("Select employee first");
-    return;
-  }
-  
-  try {
-    toast.loading("Generating payslip...", { id: "payslip" });
-    
-    const emp = selData.emp;
-    const bs = parseFloat(emp.basic_salary) || 0;
-    
-    const payrollData = {
-      baseSalary: bs,
-      hra: bs * 0.40,
-      ta: 0,
-      pf: bs * 0.12,
-      tax: 0,
-      gross: bs + (bs * 0.40),
-      deductions: bs * 0.12,
-      net: bs + (bs * 0.40) - (bs * 0.12),
-      workingDays: 22,
-      present: 20,
-      absent: 2,
-      late: 0,
-      absentDeduction: 0,
-      lateDeduction: 0,
-      hraPct: 40,
-      pfPct: 12,
-      taxPct: 0,
-      taAmount: 0,
-      perDay: bs / 22,
-      totalHours: 160
-    };
-    
-    const companyLogo = await loadCompanyLogo();
-    const doc = await generatePayslipPDF(emp, payrollData, monthNames, month, year, companyLogo, 'en');
-    
-    const filename = `${emp.name}_Payslip_${monthNames[month - 1]}_${year}.pdf`;
-    doc.save(filename);
-    
-    toast.dismiss("payslip");
-    toast.success("✅ Payslip downloaded!");
-  } catch (err) {
-    console.error("Error:", err);
-    toast.dismiss("payslip");
-    toast.error(`❌ Error: ${err.message}`);
-  }
-};
 
 // ─── PAYROLL PAGE ─────────────────────────────────────────────────────────────
 function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps, useDemo }) {
