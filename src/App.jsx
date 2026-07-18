@@ -1342,7 +1342,7 @@ y += 6;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(6);
   doc.text("This is a confidential, system-generated payslip.", W / 2, footerY + 12, { align: "center" });
-  doc.text("For queries, contact HR at hr@company.com", W / 2, footerY + 15, { align: "center" });
+  doc.text("For queries, contact HR ", W / 2, footerY + 15, { align: "center" });
   
   doc.setTextColor(150, 160, 170);
   doc.setFont("helvetica", "bold");
