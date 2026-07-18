@@ -1292,23 +1292,35 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps, useDemo }) {
   };
 
   // ── Download PDF ──
-  const handleDownloadPDF = async () => {
+ const handleDownloadPDF = async () => {
     if (!selData) return;
     setPdfLoading(true);
     try {
       toast.loading("Building PDF…", { id: "pdf" });
-       const companyLogo = await loadCompanyLogo();
-       const doc = await generatePayslipPDF(emp, payrollData, monthNames, month, year, companyLogo);
+      const companyLogo = await loadCompanyLogo();
+      
+      // ✅ Use selData.emp instead of emp
+      const doc = await generatePayslipPDF(
+        selData.emp, 
+        payrollData, 
+        monthNames, 
+        month, 
+        year, 
+        companyLogo
+      );
+      
       const filename = `${selData.emp.name.replace(/\s+/g, "_")}_Payslip_${monthNames[month - 1]}_${year}.pdf`;
       doc.save(filename);
       toast.dismiss("pdf");
       toast.success("📥 Payslip downloaded!");
-    } catch (e) {
+    } catch (err) {
+      console.error("PDF error:", err);
       toast.dismiss("pdf");
-      toast.error("PDF failed: " + e.message);
+      toast.error(`❌ PDF failed: ${err.message}`);
+    } finally {
+      setPdfLoading(false);
     }
-    setPdfLoading(false);
-  };
+};
 
   // ── Send email ──
   const handleSendEmail = async () => {
