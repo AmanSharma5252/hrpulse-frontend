@@ -1061,22 +1061,23 @@ async function generatePayslipPDF(emp, data, monthNames, month, year, companyLog
   
   // Employee details (left column)
   doc.setFontSize(7.5);
-  doc.setTextColor(...colors.text);
-  const y_offset = y + 16;
-  
-  const leftCol = marginX + 4;
-  const rightCol = marginX + contentW / 2;
-  
-  doc.text(`Employee ID: ${emp.code || "—"}`, leftCol, y_offset);
-  doc.text(`Designation: ${emp.title || "—"}`, leftCol, y_offset + 4);
-  doc.text(`Department: ${emp.dept || "—"}`, leftCol, y_offset + 8);
-  
-  doc.text(`Email: ${emp.email || "—"}`, rightCol, y_offset);
-  const bankField = emp.bankName || emp.bank_name || emp.bankAccount || emp.bank_account || emp.accountNumber || emp.account_number || "—";
-  doc.text(`Bank: ${bankField}`, rightCol, y + 21);
-  doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}`, rightCol, y_offset + 9);
-  
-  y += 34;
+doc.setTextColor(...colors.text);
+
+const leftCol = marginX + 4;
+const rightCol = marginX + contentW / 2;
+
+// Left column
+doc.text(`Employee ID: ${emp.code || "—"}`, leftCol, y + 16);
+doc.text(`Designation: ${emp.title || "—"}`, leftCol, y + 21);
+doc.text(`Department: ${emp.dept || "—"}`, leftCol, y + 26);
+
+// Right column
+doc.text(`Email: ${emp.email || "—"}`, rightCol, y + 16);
+
+const bankField = emp.bankName || emp.bank_name || emp.bankAccount || emp.bank_account || emp.accountNumber || "—";
+doc.text(`Bank: ${bankField}`, rightCol, y + 21);
+
+doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}`, rightCol, y + 26);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // ATTENDANCE & KEY METRICS
