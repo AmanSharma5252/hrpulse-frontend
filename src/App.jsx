@@ -1125,13 +1125,14 @@ doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}`, rightCol, y + 2
     boxX += boxW + 2.25;
   });
   
-  y += 26;
+  y += 36;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // EARNINGS & DEDUCTIONS - Professional Table
   // ─────────────────────────────────────────────────────────────────────────────
   
   const drawTable = (title, rows, titleColor) => {
+      y += 4;
     // Title
     doc.setFillColor(...titleColor);
     doc.rect(marginX, y, contentW, 6, "F");
