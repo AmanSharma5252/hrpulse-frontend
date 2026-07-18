@@ -950,232 +950,400 @@ function loadJsPDF() {
 }
 
 // ─── PDF GENERATOR WITH LOGO SUPPORT ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// 💼 PREMIUM PROFESSIONAL PAYSLIP GENERATOR v2
+// Enterprise-grade design with sophisticated layout
+// ═══════════════════════════════════════════════════════════════════════════════
+
 async function generatePayslipPDF(emp, data, monthNames, month, year, companyLogo = null) {
   const JsPDF = await loadJsPDF();
   const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const W = 210, pad = 20;
-
   
+  const W = 210;
+  const H = 297;
+  const marginX = 15;
+  const marginY = 15;
+  const contentW = W - marginX * 2;
+  
+  // ─────────────────────────────────────────────────────────────────────────────
+  // COLORS - Professional Palette
+  // ─────────────────────────────────────────────────────────────────────────────
+  const colors = {
+    primary: [24, 144, 255],      // Professional blue
+    secondary: [82, 196, 26],     // Professional green
+    dark: [33, 37, 41],           // Dark charcoal
+    light: [247, 248, 250],       // Light gray
+    text: [55, 65, 81],           // Dark text
+    lightText: [107, 114, 128],   // Muted text
+    border: [209, 213, 219],      // Border gray
+    success: [34, 197, 94],       // Green
+    danger: [239, 68, 68],        // Red
+    warning: [245, 158, 11],      // Orange
+  };
+  
+  const fmt = (val) => `Rs. ${Number(val || 0).toLocaleString("en-IN")}`;
+  let y = marginY;
 
-  // ── Dark header bar ──
-  doc.setFillColor(10, 16, 32);
-  doc.rect(0, 0, W, 42, "F");
-  doc.setFillColor(62, 207, 142);
-  doc.rect(0, 40, W, 2, "F");
-
-  // ── Company Logo (Header) ──
+  // ─────────────────────────────────────────────────────────────────────────────
+  // HEADER - Premium Design
+  // ─────────────────────────────────────────────────────────────────────────────
+  
+  // Top accent bar
+  doc.setFillColor(...colors.primary);
+  doc.rect(0, 0, W, 5, "F");
+  
+  // Header background
+  doc.setFillColor(...colors.light);
+  doc.rect(0, 5, W, 40, "F");
+  
+  // Company logo
   if (companyLogo) {
     try {
-      doc.addImage(companyLogo, "PNG", pad, 5, 15, 15);
-    } catch (err) {
-      console.error("Logo error:", err);
-    }
+      doc.addImage(companyLogo, "PNG", marginX, 8, 12, 12);
+    } catch (err) {}
   }
-
-  // Company name
-  doc.setTextColor(62, 207, 142);
-  doc.setFontSize(22);
-  doc.setFont("helvetica", "bold");
-  doc.text("HRPulse", pad + (companyLogo ? 20 : 0), 18);
-
-  doc.setTextColor(150, 175, 210);
-  doc.setFontSize(9);
-  doc.setFont("helvetica", "normal");
-  doc.text("Workforce Intelligence Platform", pad + (companyLogo ? 20 : 0), 26);
-
-  doc.setTextColor(200, 215, 230);
-  doc.setFontSize(14);
-  doc.setFont("helvetica", "bold");
-  doc.text("PAYSLIP", W - pad, 18, { align: "right" });
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(130, 155, 185);
-  doc.text(`Pay Period: ${monthNames[month - 1]} ${year}`, W - pad, 26, { align: "right" });
-
-  let y = 52;
-
-  // ── Employee info box ──
-  doc.setFillColor(15, 22, 40);
-  doc.roundedRect(pad, y, W - pad * 2, 30, 3, 3, "F");
-
-  doc.setTextColor(62, 207, 142);
-  doc.setFontSize(14);
-  doc.setFont("helvetica", "bold");
-  doc.text(emp.name, pad + 6, y + 9);
-
-  doc.setTextColor(150, 175, 210);
-  doc.setFontSize(9);
-  doc.setFont("helvetica", "normal");
-  doc.text(`${emp.title || emp.role}  ·  ${emp.dept || "—"}`, pad + 6, y + 17);
-  doc.text(`Employee Code: ${emp.code || "—"}`, pad + 6, y + 24);
-
-  const rightCol = W / 2 + 10;
-  doc.text(`Email: ${emp.email || "—"}`, rightCol, y + 17);
-  doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}`, rightCol, y + 24);
-
-  y += 38;
-
-  // ── Attendance summary row ──
-  doc.setTextColor(100, 125, 160);
-  doc.setFontSize(7.5);
-  doc.setFont("helvetica", "bold");
-  doc.text("ATTENDANCE SUMMARY", pad, y);
-  y += 5;
-
-  const attItems = [
-    ["Working Days", data.workingDays],
-    ["Present", data.present],
-    ["Late", data.late],
-    ["Absent", data.absent],
-  ];
-  const boxW = (W - pad * 2) / 4 - 2;
-  attItems.forEach(([label, val], i) => {
-    const x = pad + i * (boxW + 2.7);
-    doc.setFillColor(13, 20, 36);
-    doc.roundedRect(x, y, boxW, 16, 2, 2, "F");
-    doc.setTextColor(62, 207, 142);
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text(String(val ?? "—"), x + boxW / 2, y + 9, { align: "center" });
-    doc.setTextColor(100, 125, 160);
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "normal");
-    doc.text(label, x + boxW / 2, y + 14, { align: "center" });
-  });
-  y += 24;
-
-
-  // ── Helper function to format currency ──
-  const formatCurrency = n => `Rs. ${Math.round(Number(n) || 0).toLocaleString("en-IN")}`;
-
   
+  // Company name
+  doc.setTextColor(...colors.dark);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text("HRPulse", marginX + (companyLogo ? 16 : 0), 14);
+  
+  // Company tagline
+  doc.setTextColor(...colors.lightText);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text("Workforce Intelligence Platform", marginX + (companyLogo ? 16 : 0), 19);
+  
+  // Payslip title (right side)
+  doc.setTextColor(...colors.primary);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text("PAYSLIP", W - marginX, 14, { align: "right" });
+  
+  // Month and year
+  doc.setTextColor(...colors.text);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(`${monthNames[month - 1]} ${year}`, W - marginX, 19, { align: "right" });
+  
+  // Document ID
+  doc.setTextColor(...colors.lightText);
+  doc.setFontSize(7);
+  doc.text(`ID: ${emp.code || "EMP-001"} | Generated: ${new Date().toLocaleDateString("en-IN")}`, W - marginX, 24, { align: "right" });
+  
+  y = 48;
 
-  // ── Helper: draw a labelled table section ──
-  const drawSection = (title, rows, valColor) => {
-    doc.setTextColor(100, 125, 160);
-    doc.setFontSize(7.5);
+  // ─────────────────────────────────────────────────────────────────────────────
+  // EMPLOYEE INFORMATION - Card Style
+  // ─────────────────────────────────────────────────────────────────────────────
+  
+  // Border
+  doc.setDrawColor(...colors.border);
+  doc.setLineWidth(0.5);
+  doc.rect(marginX, y - 2, contentW, 32, "S");
+  
+  // Background
+  doc.setFillColor(...colors.light);
+  doc.rect(marginX, y - 2, contentW, 32, "F");
+  
+  // Employee name
+  doc.setTextColor(...colors.dark);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text(emp.name, marginX + 4, y + 4);
+  
+  // Role and department
+  doc.setTextColor(...colors.lightText);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text(`${emp.title || "Employee"} • ${emp.dept || "General"}`, marginX + 4, y + 10);
+  
+  // Employee details (left column)
+  doc.setFontSize(7.5);
+  doc.setTextColor(...colors.text);
+  y_offset = y + 16;
+  
+  const leftCol = marginX + 4;
+  const rightCol = marginX + contentW / 2;
+  
+  doc.text(`Employee ID: ${emp.code || "—"}`, leftCol, y_offset);
+  doc.text(`Designation: ${emp.title || "—"}`, leftCol, y_offset + 4);
+  doc.text(`Department: ${emp.dept || "—"}`, leftCol, y_offset + 8);
+  
+  doc.text(`Email: ${emp.email || "—"}`, rightCol, y_offset);
+  doc.text(`Bank: ${emp.bankName || "HDFC Bank"}`, rightCol, y_offset + 4);
+  doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}`, rightCol, y_offset + 8);
+  
+  y += 34;
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ATTENDANCE & KEY METRICS
+  // ─────────────────────────────────────────────────────────────────────────────
+  
+  doc.setTextColor(...colors.text);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("ATTENDANCE & KEY METRICS", marginX, y);
+  y += 6;
+  
+  // Metrics boxes
+  const metrics = [
+    { label: "Working Days", value: data.workingDays, icon: "📅" },
+    { label: "Present", value: data.present, icon: "✓", color: colors.success },
+    { label: "Absent", value: data.absent, icon: "✗", color: colors.danger },
+    { label: "Late", value: data.late, icon: "🕐", color: colors.warning },
+  ];
+  
+  const boxW = (contentW - 9) / 4;
+  let boxX = marginX;
+  
+  metrics.forEach((metric) => {
+    // Box border
+    doc.setDrawColor(...metric.color || colors.border);
+    doc.setLineWidth(0.5);
+    doc.rect(boxX, y, boxW, 20, "S");
+    
+    // Background
+    doc.setFillColor(255, 255, 255);
+    doc.rect(boxX, y, boxW, 20, "F");
+    
+    // Value
+    doc.setTextColor(...metric.color || colors.primary);
     doc.setFont("helvetica", "bold");
-    doc.text(title, pad, y);
-    y += 5;
+    doc.setFontSize(14);
+    doc.text(String(metric.value || 0), boxX + boxW / 2, y + 8, { align: "center" });
+    
+    // Label
+    doc.setTextColor(...colors.text);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.text(metric.label, boxX + boxW / 2, y + 17, { align: "center" });
+    
+    boxX += boxW + 2.25;
+  });
+  
+  y += 26;
 
-    rows.forEach(([label, val], idx) => {
-      const bg = idx % 2 === 0 ? [13, 20, 35] : [11, 17, 30];
-      doc.setFillColor(...bg);
-      doc.rect(pad, y, W - pad * 2, 9, "F");
-
-      doc.setTextColor(170, 190, 215);
-      doc.setFontSize(9);
+  // ─────────────────────────────────────────────────────────────────────────────
+  // EARNINGS & DEDUCTIONS - Professional Table
+  // ─────────────────────────────────────────────────────────────────────────────
+  
+  const drawTable = (title, rows, titleColor) => {
+    // Title
+    doc.setFillColor(...titleColor);
+    doc.rect(marginX, y, contentW, 6, "F");
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text(title, marginX + 3, y + 4);
+    
+    y += 7;
+    
+    // Header row
+    doc.setFillColor(...colors.light);
+    doc.rect(marginX, y, contentW, 5, "F");
+    doc.setDrawColor(...colors.border);
+    doc.setLineWidth(0.3);
+    doc.line(marginX, y + 5, marginX + contentW, y + 5);
+    
+    doc.setTextColor(...colors.text);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.text("Description", marginX + 3, y + 3.5);
+    doc.text("Amount", marginX + contentW - 3, y + 3.5, { align: "right" });
+    
+    y += 6;
+    
+    // Data rows
+    rows.forEach((row, idx) => {
+      const isEven = idx % 2 === 0;
+      
+      // Alternating background
+      if (isEven) {
+        doc.setFillColor(249, 250, 251);
+        doc.rect(marginX, y, contentW, 5, "F");
+      }
+      
+      // Border
+      doc.setDrawColor(...colors.border);
+      doc.setLineWidth(0.2);
+      doc.line(marginX, y + 5, marginX + contentW, y + 5);
+      
+      // Content
+      doc.setTextColor(...colors.text);
       doc.setFont("helvetica", "normal");
-      doc.text(label, pad + 5, y + 6);
-
-      doc.setTextColor(...valColor);
+      doc.setFontSize(7.5);
+      doc.text(row[0], marginX + 3, y + 3.5);
+      
+      doc.setTextColor(...titleColor);
       doc.setFont("helvetica", "bold");
-      doc.text(formatCurrency(val), W - pad - 5, y + 6, { align: "right" });
-      y += 9;
+      doc.text(fmt(row[1]), marginX + contentW - 3, y + 3.5, { align: "right" });
+      
+      y += 6;
     });
-    y += 5;
+    
+    y += 2;
   };
-
-  drawSection("EARNINGS", [
+  
+  drawTable("EARNINGS", [
     ["Basic Salary", data.baseSalary],
     ["House Rent Allowance (HRA)", data.hra],
-    ["Travel Allowance", data.ta],
-  ], [62, 207, 142]);
-
-  const deductionRows = [
+    ["Travel Allowance (TA)", data.ta],
+  ], colors.success);
+  
+  drawTable("DEDUCTIONS", [
     ["Provident Fund (PF)", data.pf],
-    ["Tax Deduction", data.tax],
-  ];
-  if (data.absentDeduction > 0) deductionRows.push(["Absent Deduction", data.absentDeduction]);
-  if (data.lateDeduction > 0) deductionRows.push(["Late Deduction", data.lateDeduction]);
-  drawSection("DEDUCTIONS", deductionRows, [239, 68, 68]);
+    ["Income Tax", data.tax],
+    ...(data.absentDeduction > 0 ? [["Absent Deduction", data.absentDeduction]] : []),
+    ...(data.lateDeduction > 0 ? [["Late Deduction", data.lateDeduction]] : []),
+  ], colors.danger);
 
-  // ── Gross / Deductions / Net summary ──
-  const summaryRows = [
-    ["Gross Earnings", data.gross, [62, 207, 142]],
-    ["Total Deductions", data.deductions, [239, 68, 68]],
-  ];
-  summaryRows.forEach(([label, val, col]) => {
-    doc.setFillColor(10, 16, 28);
-    doc.rect(pad, y, W - pad * 2, 9, "F");
-    doc.setTextColor(170, 190, 215);
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    doc.text(label, pad + 5, y + 6);
-    doc.setTextColor(...col);
-    doc.setFont("helvetica", "bold");
-    doc.text(formatCurrency(val), W - pad - 5, y + 6, { align: "right" });
-    y += 9;
-  });
-  y += 4;
-
-  // ── Net pay highlight box ──
-  doc.setFillColor(8, 28, 18);
-  doc.roundedRect(pad, y, W - pad * 2, 20, 3, 3, "F");
-  doc.setDrawColor(62, 207, 142);
-  doc.setLineWidth(0.6);
-  doc.roundedRect(pad, y, W - pad * 2, 20, 3, 3, "S");
-
-  doc.setTextColor(170, 210, 190);
-  doc.setFontSize(10);
+  // ─────────────────────────────────────────────────────────────────────────────
+  // SUMMARY - Gross, Deductions, Net
+  // ─────────────────────────────────────────────────────────────────────────────
+  
+  y += 3;
+  
+  // Gross Earnings
+  doc.setFillColor(245, 250, 255);
+  doc.rect(marginX, y, contentW, 6, "F");
+  doc.setDrawColor(...colors.border);
+  doc.setLineWidth(0.3);
+  doc.line(marginX, y + 6, marginX + contentW, y + 6);
+  
+  doc.setTextColor(...colors.text);
   doc.setFont("helvetica", "bold");
-  doc.text("NET PAY", pad + 8, y + 12);
+  doc.setFontSize(8);
+  doc.text("GROSS EARNINGS", marginX + 3, y + 4);
+  
+  doc.setTextColor(...colors.primary);
+  doc.text(fmt(data.gross), marginX + contentW - 3, y + 4, { align: "right" });
+  
+  y += 8;
+  
+  // Total Deductions
+  doc.setFillColor(255, 245, 245);
+  doc.rect(marginX, y, contentW, 6, "F");
+  doc.setDrawColor(...colors.border);
+  doc.setLineWidth(0.3);
+  doc.line(marginX, y + 6, marginX + contentW, y + 6);
+  
+  doc.setTextColor(...colors.text);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.text("TOTAL DEDUCTIONS", marginX + 3, y + 4);
+  
+  doc.setTextColor(...colors.danger);
+  doc.text(fmt(data.deductions), marginX + contentW - 3, y + 4, { align: "right" });
+  
+  y += 10;
 
-  doc.setTextColor(62, 207, 142);
+  // ─────────────────────────────────────────────────────────────────────────────
+  // NET PAY - Premium Highlight
+  // ─────────────────────────────────────────────────────────────────────────────
+  
+  // Box
+  doc.setFillColor(...colors.primary);
+  doc.roundedRect(marginX, y, contentW, 18, 2, 2, "F");
+  
+  // Border
+  doc.setDrawColor(255, 255, 255);
+  doc.setLineWidth(2);
+  doc.roundedRect(marginX, y, contentW, 18, 2, 2, "S");
+  
+  // Label
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("NET PAY (Take Home Salary)", marginX + 4, y + 6);
+  
+  // Amount
   doc.setFontSize(18);
-  doc.text(formatCurrency(data.net), W - pad - 8, y + 13, { align: "right" });
-  y += 28;
+  doc.text(fmt(data.net), marginX + contentW - 4, y + 11, { align: "right" });
+  
+  y += 24;
 
-  // ── Salary structure breakdown ──
-  doc.setTextColor(100, 125, 160);
-  doc.setFontSize(7.5);
+  // ─────────────────────────────────────────────────────────────────────────────
+  // SALARY STRUCTURE BREAKDOWN
+  // ─────────────────────────────────────────────────────────────────────────────
+  
+  doc.setTextColor(...colors.text);
   doc.setFont("helvetica", "bold");
-  doc.text("SALARY STRUCTURE", pad, y);
-  y += 5;
-
-  const structRows = [
-    [`HRA Rate: ${data.hraPct || 0}%`, `PF Rate: ${data.pfPct || 0}%`],
-    [`TA Fixed: ${formatCurrency(data.taAmount || 0)}`, `Tax Rate: ${data.taxPct || 0}%`],
-    [`Per Day Rate: ${formatCurrency(data.perDay || 0)}`, `Total Hours Worked: ${data.totalHours || 0}h`],
-  ];
-  structRows.forEach(([left, right]) => {
-    doc.setFillColor(11, 17, 30);
-    doc.rect(pad, y, W - pad * 2, 8, "F");
-    doc.setTextColor(130, 155, 190);
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.text(left, pad + 5, y + 5.5);
-    doc.text(right, W - pad - 5, y + 5.5, { align: "right" });
-    y += 8;
-  });
+  doc.setFontSize(8);
+  doc.text("SALARY STRUCTURE & RATES", marginX, y);
   y += 6;
+  
+  // Small breakdown table
+  const structItems = [
+    ["HRA Rate", `${data.hraPct || 40}%`, "PF Rate", `${data.pfPct || 12}%`],
+    ["Per Day Rate", fmt(data.perDay || 0), "Total Hours", `${data.totalHours || 160}h`],
+  ];
+  
+  const colW = (contentW - 2) / 4;
+  
+  structItems.forEach((row, idx) => {
+    const bgColor = idx % 2 === 0 ? colors.light : [255, 255, 255];
+    doc.setFillColor(...bgColor);
+    doc.rect(marginX, y, contentW, 5, "F");
+    
+    doc.setDrawColor(...colors.border);
+    doc.setLineWidth(0.2);
+    doc.line(marginX, y + 5, marginX + contentW, y + 5);
+    
+    doc.setTextColor(...colors.text);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    
+    doc.text(row[0], marginX + 2, y + 3.5);
+    doc.setTextColor(...colors.primary);
+    doc.setFont("helvetica", "bold");
+    doc.text(row[1], marginX + colW - 1, y + 3.5, { align: "right" });
+    
+    doc.setTextColor(...colors.text);
+    doc.setFont("helvetica", "normal");
+    doc.text(row[2], marginX + colW + 1, y + 3.5);
+    doc.setTextColor(...colors.primary);
+    doc.setFont("helvetica", "bold");
+    doc.text(row[3], marginX + contentW - 1, y + 3.5, { align: "right" });
+    
+    y += 6;
+  });
 
-  // ── Footer ──
-  doc.setFillColor(10, 16, 32);
-  doc.rect(0, 275, W, 22, "F");
-  doc.setFillColor(62, 207, 142);
-  doc.rect(0, 275, W, 0.8, "F");
-
-  // ── Company Logo (Footer - optional) ──
+  // ─────────────────────────────────────────────────────────────────────────────
+  // FOOTER - Professional
+  // ─────────────────────────────────────────────────────────────────────────────
+  
+  const footerY = H - 18;
+  
+  // Footer background
+  doc.setFillColor(...colors.dark);
+  doc.rect(0, footerY - 2, W, H - footerY + 2, "F");
+  
+  // Accent line
+  doc.setFillColor(...colors.primary);
+  doc.rect(0, footerY - 2, W, 1, "F");
+  
+  // Logo
   if (companyLogo) {
     try {
-      doc.addImage(companyLogo, "PNG", W / 2 - 6, 276, 12, 12);
-    } catch (err) {
-      console.error("Footer logo error:", err);
-    }
+      doc.addImage(companyLogo, "PNG", W / 2 - 5, footerY, 10, 10);
+    } catch (err) {}
   }
-
-  doc.setTextColor(80, 105, 140);
-  doc.setFontSize(7);
+  
+  // Footer text
+  doc.setTextColor(200, 210, 220);
   doc.setFont("helvetica", "normal");
-  doc.text(
-    "This is a system-generated payslip and does not require a physical signature.",
-    W / 2, 283, { align: "center" }
-  );
-  doc.text(
-    "HRPulse  ·  support@hrpulse.io  ·  hrpulse.io  ·  Confidential",
-    W / 2, 290, { align: "center" }
-  );
+  doc.setFontSize(6);
+  doc.text("This is a confidential, system-generated payslip.", W / 2, footerY + 12, { align: "center" });
+  doc.text("For queries, contact HR at hr@company.com", W / 2, footerY + 15, { align: "center" });
+  
+  doc.setTextColor(150, 160, 170);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(5);
+  doc.text("HRPulse • Powered by Anthropic • hrpulse.io", marginX, footerY + 18);
+  doc.text(`Generated: ${new Date().toLocaleString("en-IN")}`, W - marginX, footerY + 18, { align: "right" });
 
   return doc;
 }
