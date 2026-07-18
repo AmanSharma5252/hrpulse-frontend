@@ -1072,7 +1072,7 @@ async function generatePayslipPDF(emp, data, monthNames, month, year, companyLog
   doc.text(`Department: ${emp.dept || "—"}`, leftCol, y_offset + 8);
   
   doc.text(`Email: ${emp.email || "—"}`, rightCol, y_offset);
-  doc.text(`Bank: ${emp.bankName || "HDFC Bank"}`, rightCol, y_offset + 4);
+  doc.text(`Bank: ${emp.bankName || "—"}`, rightCol, y_offset);
   doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}`, rightCol, y_offset + 8);
   
   y += 34;
