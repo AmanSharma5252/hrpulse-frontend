@@ -955,8 +955,7 @@ async function generatePayslipPDF(emp, data, monthNames, month, year, companyLog
   const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const W = 210, pad = 20;
 
-  // Helper function for currency formatting
-  const formatCurrency = (amount) => `Rs. ${Number(amount).toLocaleString("en-IN")}`;
+  
 
   // ── Dark header bar ──
   doc.setFillColor(10, 16, 32);
