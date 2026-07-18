@@ -1044,7 +1044,10 @@ async function generatePayslipPDF(emp, data, monthNames, month, year, companyLog
   });
   y += 24;
 
+
   // ── Helper function to format currency ──
+  const formatCurrency = n => `Rs. ${Math.round(Number(n) || 0).toLocaleString("en-IN")}`;
+
   
 
   // ── Helper: draw a labelled table section ──
