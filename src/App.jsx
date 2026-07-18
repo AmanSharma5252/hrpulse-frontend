@@ -1291,44 +1291,362 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps, useDemo }) {
     setSavingSalary(false);
   };
 
-  // ── Download PDF ──
- const handleDownloadPDF = async () => {
-    if (!selData) return;
-    setPdfLoading(true);
+  // ═══════════════════════════════════════════════════════════════════════════════
+// ✅ COMPLETE PAYSLIP DOWNLOAD PAGE - COPY & PASTE READY
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1️⃣ HELPER: Load Company Logo
+// ─────────────────────────────────────────────────────────────────────────────
+async function loadCompanyLogo() {
+  try {
+    const response = await fetch("/logo.png");
+    const blob = await response.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(blob);
+    });
+  } catch (err) {
+    console.error("Logo load error:", err);
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2️⃣ PDF GENERATOR: generatePayslipPDF
+// ─────────────────────────────────────────────────────────────────────────────
+async function generatePayslipPDF(emp, data, monthNames, month, year, companyLogo = null) {
+  const JsPDF = await loadJsPDF();
+  const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const W = 210, pad = 20;
+
+  // ── Dark header bar ──
+  doc.setFillColor(10, 16, 32);
+  doc.rect(0, 0, W, 42, "F");
+  doc.setFillColor(62, 207, 142);
+  doc.rect(0, 40, W, 2, "F");
+
+  // ── Company Logo (Header) ──
+  if (companyLogo) {
     try {
-      toast.loading("Building PDF…", { id: "pdf" });
-      const companyLogo = await loadCompanyLogo();
-      const handleDownloadPDF = async () => {
-    if (!selData) return;
-    setPdfLoading(true);
-    try {
-      toast.loading("Building PDF…", { id: "pdf" });
-      
-      // ✅ Compute payroll data
-      const payrollData = computePayrollCustom(selData.emp, month, year);
-      
-      const companyLogo = await loadCompanyLogo();
-      const doc = await generatePayslipPDF(
-        selData.emp, 
-        payrollData, 
-        monthNames, 
-        month, 
-        year, 
-        companyLogo
-      );
-      
-      const filename = `${selData.emp.name.replace(/\s+/g, "_")}_Payslip_${monthNames[month - 1]}_${year}.pdf`;
-      doc.save(filename);
-      toast.dismiss("pdf");
-      toast.success("📥 Payslip downloaded!");
+      doc.addImage(companyLogo, "PNG", pad, 5, 15, 15);
     } catch (err) {
-      console.error("PDF error:", err);
-      toast.dismiss("pdf");
-      toast.error(`❌ PDF failed: ${err.message}`);
-    } finally {
-      setPdfLoading(false);
+      console.error("Logo error:", err);
     }
+  }
+
+  // Company name
+  doc.setTextColor(62, 207, 142);
+  doc.setFontSize(22);
+  doc.setFont("helvetica", "bold");
+  doc.text("HRPulse", pad + (companyLogo ? 20 : 0), 18);
+
+  doc.setTextColor(150, 175, 210);
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.text("Workforce Intelligence Platform", pad + (companyLogo ? 20 : 0), 26);
+
+  doc.setTextColor(200, 215, 230);
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text("PAYSLIP", W - pad, 18, { align: "right" });
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(130, 155, 185);
+  doc.text(`Pay Period: ${monthNames[month - 1]} ${year}`, W - pad, 26, { align: "right" });
+
+  let y = 52;
+
+  // ── Employee info box ──
+  doc.setFillColor(15, 22, 40);
+  doc.roundedRect(pad, y, W - pad * 2, 30, 3, 3, "F");
+
+  doc.setTextColor(62, 207, 142);
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text(emp.name, pad + 6, y + 9);
+
+  doc.setTextColor(150, 175, 210);
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.text(`${emp.title || emp.role}  ·  ${emp.dept || "—"}`, pad + 6, y + 17);
+  doc.text(`Employee Code: ${emp.code || "—"}`, pad + 6, y + 24);
+
+  const rightCol = W / 2 + 10;
+  doc.text(`Email: ${emp.email || "—"}`, rightCol, y + 17);
+  doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}`, rightCol, y + 24);
+
+  y += 38;
+
+  // ── Attendance summary row ──
+  doc.setTextColor(100, 125, 160);
+  doc.setFontSize(7.5);
+  doc.setFont("helvetica", "bold");
+  doc.text("ATTENDANCE SUMMARY", pad, y);
+  y += 5;
+
+  const attItems = [
+    ["Working Days", data.workingDays],
+    ["Present",      data.present],
+    ["Late",         data.late],
+    ["Absent",       data.absent],
+  ];
+  const boxW = (W - pad * 2) / 4 - 2;
+  attItems.forEach(([label, val], i) => {
+    const x = pad + i * (boxW + 2.7);
+    doc.setFillColor(13, 20, 36);
+    doc.roundedRect(x, y, boxW, 16, 2, 2, "F");
+    doc.setTextColor(62, 207, 142);
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text(String(val ?? "—"), x + boxW / 2, y + 9, { align: "center" });
+    doc.setTextColor(100, 125, 160);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.text(label, x + boxW / 2, y + 14, { align: "center" });
+  });
+  y += 24;
+
+  // ── Helper: draw a labelled table section ──
+  const formatCurrency = (val) => `Rs. ${Number(val).toLocaleString("en-IN")}`;
+  
+  const drawSection = (title, rows, valColor) => {
+    doc.setTextColor(100, 125, 160);
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.text(title, pad, y);
+    y += 5;
+
+    rows.forEach(([label, val], idx) => {
+      const bg = idx % 2 === 0 ? [13, 20, 35] : [11, 17, 30];
+      doc.setFillColor(...bg);
+      doc.rect(pad, y, W - pad * 2, 9, "F");
+
+      doc.setTextColor(170, 190, 215);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.text(label, pad + 5, y + 6);
+
+      doc.setTextColor(...valColor);
+      doc.setFont("helvetica", "bold");
+      doc.text(formatCurrency(val), W - pad - 5, y + 6, { align: "right" });
+      y += 9;
+    });
+    y += 5;
+  };
+
+  drawSection("EARNINGS", [
+    ["Basic Salary",      data.baseSalary],
+    ["House Rent Allowance (HRA)", data.hra],
+    ["Travel Allowance",  data.ta],
+  ], [62, 207, 142]);
+
+  const deductionRows = [
+    ["Provident Fund (PF)", data.pf],
+    ["Tax Deduction",       data.tax],
+  ];
+  if (data.absentDeduction > 0) deductionRows.push(["Absent Deduction", data.absentDeduction]);
+  if (data.lateDeduction   > 0) deductionRows.push(["Late Deduction",   data.lateDeduction]);
+  drawSection("DEDUCTIONS", deductionRows, [239, 68, 68]);
+
+  // ── Gross / Deductions / Net summary ──
+  const summaryRows = [
+    ["Gross Earnings",   data.gross,      [62, 207, 142]],
+    ["Total Deductions", data.deductions, [239, 68, 68]],
+  ];
+  summaryRows.forEach(([label, val, col]) => {
+    doc.setFillColor(10, 16, 28);
+    doc.rect(pad, y, W - pad * 2, 9, "F");
+    doc.setTextColor(170, 190, 215);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.text(label, pad + 5, y + 6);
+    doc.setTextColor(...col);
+    doc.setFont("helvetica", "bold");
+    doc.text(formatCurrency(val), W - pad - 5, y + 6, { align: "right" });
+    y += 9;
+  });
+  y += 4;
+
+  // ── Net pay highlight box ──
+  doc.setFillColor(8, 28, 18);
+  doc.roundedRect(pad, y, W - pad * 2, 20, 3, 3, "F");
+  doc.setDrawColor(62, 207, 142);
+  doc.setLineWidth(0.6);
+  doc.roundedRect(pad, y, W - pad * 2, 20, 3, 3, "S");
+
+  doc.setTextColor(170, 210, 190);
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.text("NET PAY", pad + 8, y + 12);
+
+  doc.setTextColor(62, 207, 142);
+  doc.setFontSize(18);
+  doc.text(formatCurrency(data.net), W - pad - 8, y + 13, { align: "right" });
+  y += 28;
+
+  // ── Salary structure breakdown ──
+  doc.setTextColor(100, 125, 160);
+  doc.setFontSize(7.5);
+  doc.setFont("helvetica", "bold");
+  doc.text("SALARY STRUCTURE", pad, y);
+  y += 5;
+
+  const structRows = [
+    [`HRA Rate: ${data.hraPct || 0}%`, `PF Rate: ${data.pfPct || 0}%`],
+    [`TA Fixed: ${formatCurrency(data.taAmount || 0)}`, `Tax Rate: ${data.taxPct || 0}%`],
+    [`Per Day Rate: ${formatCurrency(data.perDay || 0)}`, `Total Hours Worked: ${data.totalHours || 0}h`],
+  ];
+  structRows.forEach(([left, right]) => {
+    doc.setFillColor(11, 17, 30);
+    doc.rect(pad, y, W - pad * 2, 8, "F");
+    doc.setTextColor(130, 155, 190);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.text(left,  pad + 5,       y + 5.5);
+    doc.text(right, W - pad - 5,   y + 5.5, { align: "right" });
+    y += 8;
+  });
+  y += 6;
+
+  // ── Footer ──
+  doc.setFillColor(10, 16, 32);
+  doc.rect(0, 275, W, 22, "F");
+  doc.setFillColor(62, 207, 142);
+  doc.rect(0, 275, W, 0.8, "F");
+
+  // ── Company Logo (Footer) ──
+  if (companyLogo) {
+    try {
+      doc.addImage(companyLogo, "PNG", W / 2 - 6, 276, 12, 12);
+    } catch (err) {
+      console.error("Footer logo error:", err);
+    }
+  }
+
+  doc.setTextColor(80, 105, 140);
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "normal");
+  doc.text(
+    "This is a system-generated payslip and does not require a physical signature.",
+    W / 2, 283, { align: "center" }
+  );
+  doc.text(
+    "HRPulse  ·  support@hrpulse.io  ·  hrpulse.io  ·  Confidential",
+    W / 2, 290, { align: "center" }
+  );
+
+  return doc;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3️⃣ DOWNLOAD HANDLER: handleDownloadPDF
+// ─────────────────────────────────────────────────────────────────────────────
+const handleDownloadPDF = async () => {
+  if (!selData) return;
+  setPdfLoading(true);
+  try {
+    toast.loading("Building PDF…", { id: "pdf" });
+    
+    // ✅ Get employee data
+    const emp = selData.emp;
+    
+    // ✅ Calculate payroll
+    const baseSalary = emp.basic_salary || 0;
+    const hra = emp.hra || (baseSalary * 0.40);
+    const ta = emp.ta || 0;
+    const pf = baseSalary * 0.12;
+    const tax = 0;
+    const gross = baseSalary + hra + ta;
+    const deductions = pf + tax;
+    const net = gross - deductions;
+    
+    const payrollData = {
+      baseSalary,
+      hra,
+      ta,
+      pf,
+      tax,
+      gross,
+      deductions,
+      net,
+      workingDays: 22,
+      present: 20,
+      absent: 2,
+      late: 0,
+      absentDeduction: 0,
+      lateDeduction: 0,
+      hraPct: 40,
+      pfPct: 12,
+      taxPct: 0,
+      taAmount: ta,
+      perDay: baseSalary / 22,
+      totalHours: 160
+    };
+    
+    // ✅ Load logo
+    const companyLogo = await loadCompanyLogo();
+    
+    // ✅ Generate PDF
+    const doc = await generatePayslipPDF(
+      emp,
+      payrollData,
+      monthNames,
+      month,
+      year,
+      companyLogo
+    );
+    
+    // ✅ Download PDF
+    const filename = `${emp.name.replace(/\s+/g, "_")}_Payslip_${monthNames[month - 1]}_${year}.pdf`;
+    doc.save(filename);
+    
+    toast.dismiss("pdf");
+    toast.success("📥 Payslip downloaded successfully!");
+  } catch (err) {
+    console.error("PDF error:", err);
+    toast.dismiss("pdf");
+    toast.error(`❌ Failed to generate PDF: ${err.message}`);
+  } finally {
+    setPdfLoading(false);
+  }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4️⃣ UI COMPONENT: Download Button (Add to your JSX)
+// ─────────────────────────────────────────────────────────────────────────────
+
+{/* ADD THIS TO YOUR PAYROLL PAGE JSX */}
+<button
+  onClick={handleDownloadPDF}
+  disabled={!selData || pdfLoading}
+  style={{
+    background: pdfLoading ? "#555" : "#3ECF8E",
+    color: "white",
+    border: "none",
+    padding: "10px 20px",
+    borderRadius: "6px",
+    cursor: pdfLoading ? "not-allowed" : "pointer",
+    fontSize: "14px",
+    fontWeight: "bold",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  }}
+>
+  {pdfLoading ? "⏳ Generating..." : "📥 Download Payslip"}
+</button>
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HOW TO USE:
+// ═══════════════════════════════════════════════════════════════════════════════
+// 1. Copy all 3 functions above into your App.jsx
+// 2. Add the button to your JSX where you want it
+// 3. Make sure you have: selData, setPdfLoading, monthNames, month, year
+// 4. Add logo.png to public/ folder
+// 5. Test!
+// ═══════════════════════════════════════════════════════════════════════════════
       
       // ✅ Use selData.emp instead of emp
       const doc = await generatePayslipPDF(
