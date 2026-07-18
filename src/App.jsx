@@ -1125,7 +1125,7 @@ doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}`, rightCol, y + 2
     boxX += boxW + 2.25;
   });
   
-  y += 45;
+  y += 25;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // EARNINGS & DEDUCTIONS - Professional Table
