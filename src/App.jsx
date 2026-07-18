@@ -1291,104 +1291,31 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps, useDemo }) {
     setSavingSalary(false);
   };
 
- const handleDownloadPDF = async () => {  // ✅ CORRECT
-  if (!selData) {
-    toast.error("Select employee first");
-    return;
-  }
-  
+  const handleDownloadPDF = async () => {
+  if (!selData) return;
   setPdfLoading(true);
-  
   try {
-    toast.loading("Building PDF...", { id: "pdf" });
-    
-    // Get employee
-    const emp = selData.emp;
-    if (!emp) throw new Error("No employee data");
-    
-    // Calculate salary
-    const baseSalary = parseFloat(emp.basic_salary) || 0;
-    const hra = baseSalary * 0.40;
-    const ta = 0;
-    const pf = baseSalary * 0.12;
-    const tax = 0;
-    const gross = baseSalary + hra + ta;
-    const deductions = pf + tax;
-    const net = gross - deductions;
-    
-    // Create payroll object
-    const payrollData = {
-      baseSalary: baseSalary,
-      hra: hra,
-      ta: ta,
-      pf: pf,
-      tax: tax,
-      gross: gross,
-      deductions: deductions,
-      net: net,
-      workingDays: 22,
-      present: 20,
-      absent: 2,
-      late: 0,
-      absentDeduction: 0,
-      lateDeduction: 0,
-      hraPct: 40,
-      pfPct: 12,
-      taxPct: 0,
-      taAmount: ta,
-      perDay: baseSalary / 22,
-      totalHours: 160
-    };
-    
-    // Load logo
+    toast.loading("Building PDF…", { id: "pdf" });
     const companyLogo = await loadCompanyLogo();
-    
-    // Generate PDF
     const doc = await generatePayslipPDF(
-      emp, 
-      payrollData, 
-      monthNames, 
-      month, 
-      year, 
+      selData.emp,
+      selData,
+      monthNames,
+      month,
+      year,
       companyLogo
     );
-    
-    // Download
-    const filename = `${emp.name}_Payslip_${monthNames[month - 1]}_${year}.pdf`;
+    const filename = `${selData.emp.name.replace(/\s+/g, "_")}_Payslip_${monthNames[month - 1]}_${year}.pdf`;
     doc.save(filename);
-    
     toast.dismiss("pdf");
-    toast.success("✅ Downloaded!");
+    toast.success("📥 Payslip downloaded!");
   } catch (err) {
-    console.error("Download error:", err);
+    console.error("PDF error:", err);
     toast.dismiss("pdf");
-    toast.error(`❌ ${err.message}`);
+    toast.error(`❌ PDF failed: ${err.message}`);
   } finally {
     setPdfLoading(false);
   }
-};
-      
-      // ✅ Use selData.emp instead of emp
-      const doc = await generatePayslipPDF(
-        selData.emp, 
-        payrollData, 
-        monthNames, 
-        month, 
-        year, 
-        companyLogo
-      );
-      
-      const filename = `${selData.emp.name.replace(/\s+/g, "_")}_Payslip_${monthNames[month - 1]}_${year}.pdf`;
-      doc.save(filename);
-      toast.dismiss("pdf");
-      toast.success("📥 Payslip downloaded!");
-    } catch (err) {
-      console.error("PDF error:", err);
-      toast.dismiss("pdf");
-      toast.error(`❌ PDF failed: ${err.message}`);
-    } finally {
-      setPdfLoading(false);
-    }
 };
 
   // ── Send email ──
