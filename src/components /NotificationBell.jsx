@@ -21,8 +21,10 @@ function NotificationBell({ user }) {
         headers: { "Authorization": `Bearer ${localStorage.getItem("hp_at")}` }
       });
       const data = await res.json();
-      setNotifs(data.notifications || []);
-      setUnreadCount(data.notifications?.filter(n => !n.is_read).length || 0);
+      console.log("📢 Notifications response:", data);
+      const notifList = Array.isArray(data) ? data : (data.notifications || []);
+      setNotifs(notifList);
+      setUnreadCount(notifList.filter(n => !n.is_read).length);
     } catch (err) {
       console.error("Load notifications error:", err);
     } finally {

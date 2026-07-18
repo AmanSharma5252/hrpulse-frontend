@@ -23,6 +23,21 @@ function clearTokens() {
   _at = _rt = null;
   localStorage.removeItem("hp_at"); localStorage.removeItem("hp_rt");
 }
+// Helper to convert image to base64
+async function loadCompanyLogo() {
+  try {
+    const response = await fetch("/logo.png");
+    const blob = await response.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(blob);
+    });
+  } catch (err) {
+    console.error("Logo load error:", err);
+    return null;
+  }
+}
 
 async function call(path, opts = {}, retry = true) {
   const h = { "Content-Type": "application/json", "Cache-Control": "no-cache", ...(opts.headers || {}) };
@@ -934,8 +949,8 @@ function loadJsPDF() {
   });
 }
 
-// ─── PDF GENERATOR ────────────────────────────────────────────────────────────
-async function generatePayslipPDF(emp, data, monthNames, month, year) {
+// ─── PDF GENERATOR WITH LOGO SUPPORT ──────────────────────────────────────────
+async function generatePayslipPDF(emp, data, monthNames, month, year, companyLogo = null) {
   const JsPDF = await loadJsPDF();
   const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const W = 210, pad = 20;
@@ -949,16 +964,25 @@ async function generatePayslipPDF(emp, data, monthNames, month, year) {
   doc.setFillColor(62, 207, 142);
   doc.rect(0, 40, W, 2, "F");
 
+  // ── Company Logo (Header) ──
+  if (companyLogo) {
+    try {
+      doc.addImage(companyLogo, "PNG", pad, 5, 15, 15);
+    } catch (err) {
+      console.error("Logo error:", err);
+    }
+  }
+
   // Company name
   doc.setTextColor(62, 207, 142);
   doc.setFontSize(22);
   doc.setFont("helvetica", "bold");
-  doc.text("HRPulse", pad, 18);
+  doc.text("HRPulse", pad + (companyLogo ? 20 : 0), 18);
 
   doc.setTextColor(150, 175, 210);
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
-  doc.text("Workforce Intelligence Platform", pad, 26);
+  doc.text("Workforce Intelligence Platform", pad + (companyLogo ? 20 : 0), 26);
 
   doc.setTextColor(200, 215, 230);
   doc.setFontSize(14);
@@ -1020,6 +1044,9 @@ async function generatePayslipPDF(emp, data, monthNames, month, year) {
     doc.text(label, x + boxW / 2, y + 14, { align: "center" });
   });
   y += 24;
+
+  // ── Helper function to format currency ──
+  const formatCurrency = (val) => `Rs. ${Number(val).toLocaleString("en-IN")}`;
 
   // ── Helper: draw a labelled table section ──
   const drawSection = (title, rows, valColor) => {
@@ -1126,6 +1153,15 @@ async function generatePayslipPDF(emp, data, monthNames, month, year) {
   doc.rect(0, 275, W, 22, "F");
   doc.setFillColor(62, 207, 142);
   doc.rect(0, 275, W, 0.8, "F");
+
+  // ── Company Logo (Footer - optional) ──
+  if (companyLogo) {
+    try {
+      doc.addImage(companyLogo, "PNG", W / 2 - 6, 276, 12, 12);
+    } catch (err) {
+      console.error("Footer logo error:", err);
+    }
+  }
 
   doc.setTextColor(80, 105, 140);
   doc.setFontSize(7);
@@ -1262,7 +1298,8 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps, useDemo }) {
     setPdfLoading(true);
     try {
       toast.loading("Building PDF…", { id: "pdf" });
-      const doc = await generatePayslipPDF(selData.emp, selData, monthNames, month, year);
+       const companyLogo = await loadCompanyLogo();
+       const doc = await generatePayslipPDF(emp, payrollData, monthNames, month, year, companyLogo);
       const filename = `${selData.emp.name.replace(/\s+/g, "_")}_Payslip_${monthNames[month - 1]}_${year}.pdf`;
       doc.save(filename);
       toast.dismiss("pdf");
