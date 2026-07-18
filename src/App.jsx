@@ -1291,7 +1291,7 @@ function PayrollPage({ allEmps, allAtt, isAdmin, setAllEmps, useDemo }) {
     setSavingSalary(false);
   };
 
- const handleDownloadPDF = async () => {
+ const handleDownloadPDF = async () => {  // ✅ CORRECT
   if (!selData) {
     toast.error("Select employee first");
     return;
