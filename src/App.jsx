@@ -1062,7 +1062,7 @@ async function generatePayslipPDF(emp, data, monthNames, month, year, companyLog
   // Employee details (left column)
   doc.setFontSize(7.5);
   doc.setTextColor(...colors.text);
-  y_offset = y + 16;
+  const y_offset = y + 16;
   
   const leftCol = marginX + 4;
   const rightCol = marginX + contentW / 2;
