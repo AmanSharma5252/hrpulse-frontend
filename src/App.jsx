@@ -1079,15 +1079,17 @@ doc.text(`Bank: ${bankField}`, rightCol, y + 21);
 
 doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}`, rightCol, y + 26);
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // ATTENDANCE & KEY METRICS
-  // ─────────────────────────────────────────────────────────────────────────────
-  
-  doc.setTextColor(...colors.text);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.text("ATTENDANCE & KEY METRICS", marginX, y);
-  y += 6;
+y += 34; // move cursor below the employee info card before next section
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ATTENDANCE & KEY METRICS
+// ─────────────────────────────────────────────────────────────────────────────
+
+doc.setTextColor(...colors.text);
+doc.setFont("helvetica", "bold");
+doc.setFontSize(9);
+doc.text("ATTENDANCE & KEY METRICS", marginX, y);
+y += 6;
   
   // Metrics boxes
   const metrics = [
